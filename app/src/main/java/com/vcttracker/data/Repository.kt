@@ -16,6 +16,10 @@ import java.time.Instant
 import java.time.LocalDate
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import com.vcttracker.model.ModelIO
+import com.vcttracker.model.Prediction
+import com.vcttracker.model.TrainedModel
+import com.vcttracker.model.forecast
 
 data class TodayData(
     val season: Season?,
@@ -27,7 +31,7 @@ data class TodayData(
 /** A value plus where it came from, so the UI can say when it is showing saved data. */
 data class Loaded<T>(val value: T, val fetchedAt: Instant, val offline: Boolean)
 
-class Repository(context: Context) {
+class Repository(private val context: Context) {
 
     private val diskDir = File(context.cacheDir, "pages").apply { mkdirs() }
 
@@ -148,7 +152,7 @@ class Repository(context: Context) {
             value = TodayData(
                 season = seasonLoaded?.value,
                 featured = featured,
-                upcoming = upVct.withLogos(logos),
+                upcoming = withForecasts(upVct.withLogos(logos)),
                 results = resVct.withLogos(logos),
             ),
             fetchedAt = minOf(up.fetchedAt, res.fetchedAt),
@@ -168,7 +172,7 @@ class Repository(context: Context) {
     suspend fun eventMatches(id: String, force: Boolean = false): Loaded<List<MatchDay>> {
         val list = load("$VLR/event/matches/$id/?series_id=all", 60, force) { body, at -> VlrParser.parseMatchList(body, at) }
         val logos = runCatching { event(id).value.logoMap() }.getOrDefault(emptyMap())
-        return list.copy(value = list.value.withLogos(logos))
+        return list.copy(value = withForecasts(list.value.withLogos(logos)))
     }
 
     suspend fun match(id: String, force: Boolean = false) =
@@ -186,7 +190,67 @@ class Repository(context: Context) {
     suspend fun history(force: Boolean = false) =
         load(LiquipediaParser.API_URL, 12 * 60 * 60, force) { body, _ -> LiquipediaParser.parseHistory(body) }
 
+    // ------------------------------------------------------------------ predictions
+
+    private val modelLock = Mutex()
+    private var model: TrainedModel? = null
+    private var lastModelCheck = 0L
+    private val modelFile get() = File(context.filesDir, "model.json")
+
+    /**
+     * The match predictor. Starts from the copy bundled in the APK (or a newer downloaded
+     * one), and checks GitHub for a retrained model at most every few hours.
+     */
+    suspend fun model(): TrainedModel? = modelLock.withLock {
+        withContext(Dispatchers.IO) {
+            if (model == null) {
+                val bundled = runCatching {
+                    context.assets.open("model.json").bufferedReader().use { ModelIO.read(it.readText()) }
+                }.getOrNull()
+                val saved = runCatching { modelFile.takeIf { it.exists() }?.let { ModelIO.read(it.readText()) } }.getOrNull()
+                model = listOfNotNull(bundled, saved).maxByOrNull { it.generatedAt }
+            }
+            val now = System.currentTimeMillis()
+            if (now - lastModelCheck > 6 * 3600_000L) {
+                lastModelCheck = now
+                runCatching {
+                    val body = client.newCall(Request.Builder().url(MODEL_URL).header("User-Agent", VLR_AGENT).build())
+                        .execute().use { if (it.isSuccessful) it.body?.string() else null }
+                    val remote = body?.let(ModelIO::read)
+                    if (remote != null && remote.generatedAt > (model?.generatedAt ?: Instant.EPOCH)) {
+                        modelFile.writeText(body)
+                        model = remote
+                    }
+                }
+            }
+            model
+        }
+    }
+
+    private val predictLock = Mutex()
+
+    /** Forecasts are cheap but the predictor isn't thread-safe, so they run one at a time. */
+    private suspend fun <T> predicting(block: TrainedModel.() -> T): T? {
+        val m = model() ?: return null
+        return predictLock.withLock { withContext(Dispatchers.Default) { runCatching { m.block() }.getOrNull() } }
+    }
+
+    private suspend fun withForecasts(days: List<MatchDay>): List<MatchDay> {
+        if (days.none { d -> d.matches.any { it.status != MatchStatus.COMPLETED } }) return days
+        return predicting {
+            days.map { d ->
+                d.copy(matches = d.matches.map { m ->
+                    if (m.status == MatchStatus.COMPLETED) m else m.copy(forecast = forecast(m)?.team1Wins)
+                })
+            }
+        } ?: days
+    }
+
+    /** Full forecast for a match page (upcoming or live). */
+    suspend fun forecast(detail: MatchDetail): Prediction? = predicting { forecast(detail) }
+
     companion object {
+        const val MODEL_URL = "https://github.com/Suyyash-aroraa/VCT-Valo-tracker/releases/download/model-latest/model.json"
         private const val VLR_AGENT = "Mozilla/5.0 (Linux; Android 14) VCTTracker/1.0"
         private const val LIQUIPEDIA_AGENT =
             "VCTTracker/1.0 (https://github.com/suyyash-aroraa/vct-valo-tracker; Android app)"

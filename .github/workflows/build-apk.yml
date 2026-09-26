@@ -37,12 +37,19 @@ jobs:
           echo "$KEYSTORE_B64" | base64 -d > "$RUNNER_TEMP/release.jks"
           echo "VCT_KEYSTORE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
 
+      # Pull in matches played since the dataset was committed, then retrain so the
+      # APK ships with an up-to-date model (settings stay as tuned in model/hyper.json).
+      - name: Update match data and retrain the predictor
+        run: |
+          ./gradlew --no-daemon :trainer:run --args="update"
+          ./gradlew --no-daemon :trainer:run --args="train"
+
       - name: Test and build
         env:
           VCT_KEYSTORE_PASSWORD: ${{ secrets.VCT_KEYSTORE_PASSWORD }}
           VCT_KEY_ALIAS: ${{ secrets.VCT_KEY_ALIAS }}
           VCT_KEY_PASSWORD: ${{ secrets.VCT_KEY_PASSWORD }}
-        run: ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleRelease
+        run: ./gradlew --no-daemon :core:test :trainer:test :app:testDebugUnitTest :app:assembleRelease
 
       - name: Name the APK
         run: cp app/build/outputs/apk/release/app-release.apk "VCT-Tracker-1.0.${{ github.run_number }}.apk"
@@ -62,3 +69,13 @@ jobs:
             Built from ${{ github.sha }}.
           files: VCT-Tracker-1.0.${{ github.run_number }}.apk
           make_latest: true
+
+      - name: Publish the model for installed apps
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: model-latest
+          name: Latest match model
+          body: Retrained match predictor. The app downloads `model.json` from here; see docs/BACKTEST.md for how it performs.
+          files: model/model.json
+          prerelease: true
+          make_latest: false

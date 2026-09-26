@@ -48,7 +48,13 @@ import com.vcttracker.data.SideValue
 import com.vcttracker.data.StreamLink
 import com.vcttracker.data.Team
 import com.vcttracker.data.VetoStep
+import com.vcttracker.model.ModelReport
+import com.vcttracker.model.Prediction
 import com.vcttracker.ui.components.ChoiceRow
+import com.vcttracker.ui.components.ForecastCard
+import com.vcttracker.ui.components.Ui
+import com.vcttracker.ui.components.repository
+import androidx.compose.runtime.produceState
 import com.vcttracker.ui.components.CountryTag
 import com.vcttracker.ui.components.EmptyNote
 import com.vcttracker.ui.components.LiveDot
@@ -80,14 +86,29 @@ fun MatchScreen(id: String) {
     ) { force -> match(id, force) }
     var mapIdx by rememberSaveable(id) { mutableStateOf<Int?>(null) }
 
+    // Forecasts only make sense before the result is known.
+    val repo = repository()
+    val detail = (handle.state as? Ui.Ready)?.data?.value
+    val forecast by produceState<Pair<Prediction?, ModelReport?>>(null to null, detail?.id, detail?.status) {
+        if (detail != null && detail.status != MatchStatus.COMPLETED) {
+            value = repo.forecast(detail) to repo.model()?.report
+        }
+    }
+
     Column(Modifier.fillMaxSize()) {
         TopBar("Match", onRefresh = handle.refresh)
-        LoadedContent(handle) { loaded -> MatchBody(loaded, mapIdx) { mapIdx = it } }
+        LoadedContent(handle) { loaded -> MatchBody(loaded, mapIdx, forecast.first, forecast.second) { mapIdx = it } }
     }
 }
 
 @Composable
-fun MatchBody(loaded: Loaded<MatchDetail>, mapIdx: Int?, onMap: (Int) -> Unit) {
+fun MatchBody(
+    loaded: Loaded<MatchDetail>,
+    mapIdx: Int?,
+    forecast: Prediction? = null,
+    report: ModelReport? = null,
+    onMap: (Int) -> Unit,
+) {
     val m = loaded.value
     val played = m.games.filter { it.played }
     // Default to the map being played right now, else the overview.
@@ -98,6 +119,9 @@ fun MatchBody(loaded: Loaded<MatchDetail>, mapIdx: Int?, onMap: (Int) -> Unit) {
     LazyColumn(Modifier.fillMaxSize()) {
         item { OfflineNote(loaded) }
         item { Scorebug(m) }
+        if (forecast != null && m.status != MatchStatus.COMPLETED) {
+            item { ForecastCard(forecast, m.team1.name, m.team2.name, report) }
+        }
         if (m.veto.isNotEmpty()) item { VetoStrip(m.veto) }
         if (m.games.isNotEmpty()) {
             item {
@@ -155,10 +179,11 @@ private fun Scorebug(m: MatchDetail) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             TeamBlock(m.team1, Modifier.weight(1f), alignEnd = false)
             Column(Modifier.padding(horizontal = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                if (m.status == MatchStatus.UPCOMING || m.score1 == null) {
+                val score1 = m.score1
+                if (m.status == MatchStatus.UPCOMING || score1 == null) {
                     Text("VS", style = Vct.type.hero.copy(fontSize = Vct.type.display.fontSize), color = c.faint)
                 } else {
-                    val s1 = m.score1.toIntOrNull() ?: 0
+                    val s1 = score1.toIntOrNull() ?: 0
                     val s2 = m.score2?.toIntOrNull() ?: 0
                     val done = m.status == MatchStatus.COMPLETED
                     Row(
@@ -167,7 +192,7 @@ private fun Scorebug(m: MatchDetail) {
                             contentDescription = "Score ${m.team1.name} ${m.score1}, ${m.team2.name} ${m.score2}"
                         },
                     ) {
-                        Text(m.score1, style = Vct.type.hero, color = if (done && s1 < s2) c.faint else c.ink)
+                        Text(score1, style = Vct.type.hero, color = if (done && s1 < s2) c.faint else c.ink)
                         Text(":", style = Vct.type.display, color = c.faint, modifier = Modifier.padding(horizontal = 6.dp))
                         Text(m.score2.orEmpty(), style = Vct.type.hero, color = if (done && s2 < s1) c.faint else c.ink)
                     }

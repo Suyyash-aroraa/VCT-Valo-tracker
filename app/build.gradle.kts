@@ -52,12 +52,14 @@ android {
     buildFeatures {
         compose = true
     }
+    sourceSets["test"].resources.srcDir("../fixtures")
     packaging {
         resources.excludes += "/META-INF/{AL2.0,LGPL2.1}"
     }
 }
 
 dependencies {
+    implementation(project(":core"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

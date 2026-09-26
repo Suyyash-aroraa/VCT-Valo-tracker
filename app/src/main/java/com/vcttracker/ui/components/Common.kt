@@ -66,6 +66,7 @@ interface Navigator {
     fun match(id: String)
     fun team(id: String?)
     fun player(id: String?)
+    fun model()
     fun back()
 }
 

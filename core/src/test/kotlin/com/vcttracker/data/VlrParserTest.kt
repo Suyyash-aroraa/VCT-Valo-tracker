@@ -160,6 +160,16 @@ class VlrParserTest {
         assertEquals(5, m.overall!!.players1.size)
         assertTrue(m.streams.isNotEmpty())
         assertEquals(3, m.vods.size)
+        // Completed page: only the winner's pre-match price survives.
+        assertEquals(listOf(BookOdds(1.40, null), BookOdds(1.41, null)), m.odds)
+    }
+
+    @Test
+    fun upcomingMatchHasBothSidesOfTheOdds() {
+        val m = VlrParser.parseMatch(fixture("match_upcoming.html"), "753444")
+        assertEquals(MatchStatus.UPCOMING, m.status)
+        assertEquals(listOf(BookOdds(1.42, 2.74), BookOdds(1.36, 3.00)), m.odds)
+        assertEquals("Bo3", m.format)
     }
 
     @Test

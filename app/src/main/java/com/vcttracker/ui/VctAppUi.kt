@@ -47,6 +47,7 @@ import com.vcttracker.ui.screens.EventScreen
 import com.vcttracker.ui.screens.EventsScreen
 import com.vcttracker.ui.screens.HistoryScreen
 import com.vcttracker.ui.screens.MatchScreen
+import com.vcttracker.ui.screens.ModelScreen
 import com.vcttracker.ui.screens.PlayerScreen
 import com.vcttracker.ui.screens.StandingsScreen
 import com.vcttracker.ui.screens.TeamScreen
@@ -97,6 +98,7 @@ fun VctAppUi() {
                     composable("match/{id}") { MatchScreen(it.arguments?.getString("id").orEmpty()) }
                     composable("team/{id}") { TeamScreen(it.arguments?.getString("id").orEmpty()) }
                     composable("player/{id}") { PlayerScreen(it.arguments?.getString("id").orEmpty()) }
+                    composable("model") { ModelScreen() }
                 }
             }
             BottomBar(route) { tab ->
@@ -143,5 +145,6 @@ private class AppNavigator(private val nav: NavHostController) : Navigator {
     override fun match(id: String) = nav.navigate("match/$id")
     override fun team(id: String?) { if (id != null) nav.navigate("team/$id") }
     override fun player(id: String?) { if (id != null) nav.navigate("player/$id") }
+    override fun model() = nav.navigate("model")
     override fun back() { nav.popBackStack() }
 }

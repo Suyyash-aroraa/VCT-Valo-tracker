@@ -128,9 +128,10 @@ private fun BracketBox(m: BracketMatch, modifier: Modifier) {
             BracketLine(m.team1, Modifier.weight(1f))
             m.team2?.let { BracketLine(it, Modifier.weight(1f)) }
         }
-        if (!played && m.startsAt != null && m.team2 != null) {
+        val startsAt = m.startsAt
+        if (!played && startsAt != null && m.team2 != null) {
             Text(
-                "${Time.day(m.startsAt)} ${Time.clock(m.startsAt, is24)}",
+                "${Time.day(startsAt)} ${Time.clock(startsAt, is24)}",
                 style = Vct.type.label.copy(fontWeight = FontWeight.Normal),
                 color = c.faint,
                 modifier = Modifier.padding(top = 3.dp),

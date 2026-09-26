@@ -13,4 +13,4 @@ dependencyResolutionManagement {
     }
 }
 rootProject.name = "VCTTracker"
-include(":app")
+include(":app", ":core", ":trainer")

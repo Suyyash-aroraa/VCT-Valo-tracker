@@ -42,7 +42,13 @@ fun MatchRow(match: MatchSummary, modifier: Modifier = Modifier, showEvent: Bool
         when (match.status) {
             MatchStatus.LIVE -> append("Live, ${match.team1.score ?: 0} to ${match.team2.score ?: 0}. ")
             MatchStatus.COMPLETED -> append("Final, ${match.team1.score} to ${match.team2.score}. ")
-            MatchStatus.UPCOMING -> match.startsAt?.let { append("Starts ${Time.day(it)} ${Time.clock(it, is24)}. ") }
+            MatchStatus.UPCOMING -> {
+                match.startsAt?.let { append("Starts ${Time.day(it)} ${Time.clock(it, is24)}. ") }
+                match.forecast?.let {
+                    val fav = if (it >= 0.5) match.team1.team.name else match.team2.team.name
+                    append("Model favours $fav at ${Math.round(maxOf(it, 1 - it) * 100)} percent. ")
+                }
+            }
         }
         append(match.eventName)
     }
@@ -74,9 +80,11 @@ fun MatchRow(match: MatchSummary, modifier: Modifier = Modifier, showEvent: Bool
             }
         }
         Column(Modifier.weight(1f).padding(top = 10.dp, bottom = 10.dp, end = 14.dp)) {
-            SideLine(match.team1, done, match.team2.isWinner)
+            // Before a match starts, the score column carries the model's forecast instead.
+            val chance = match.forecast.takeIf { match.status == MatchStatus.UPCOMING }
+            SideLine(match.team1, done, match.team2.isWinner, chance)
             Spacer(Modifier.height(4.dp))
-            SideLine(match.team2, done, match.team1.isWinner)
+            SideLine(match.team2, done, match.team1.isWinner, chance?.let { 1 - it })
             val caption = if (showEvent) listOf(shortEvent(match.eventName), match.series) else listOf(match.series)
             val text = caption.filter { it.isNotBlank() }.joinToString(" · ")
             if (text.isNotBlank()) {
@@ -88,7 +96,7 @@ fun MatchRow(match: MatchSummary, modifier: Modifier = Modifier, showEvent: Bool
 }
 
 @Composable
-private fun SideLine(side: MatchSide, done: Boolean, otherWon: Boolean) {
+private fun SideLine(side: MatchSide, done: Boolean, otherWon: Boolean, chance: Double? = null) {
     val c = Vct.colors
     val lost = done && otherWon
     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -107,7 +115,15 @@ private fun SideLine(side: MatchSide, done: Boolean, otherWon: Boolean) {
             CountryTag(side.team.flag)
         }
         Spacer(Modifier.width(8.dp))
-        ScoreText(side.score, won = side.isWinner, lost = lost)
+        if (chance != null) {
+            Text(
+                "${Math.round(chance * 100)}%",
+                style = Vct.type.data,
+                color = if (chance >= 0.5) c.ink else c.faint,
+            )
+        } else {
+            ScoreText(side.score, won = side.isWinner, lost = lost)
+        }
     }
 }
 

@@ -358,7 +358,7 @@ object VlrParser {
             score1 = scoreSpans.getOrNull(0)?.ifBlank { null },
             score2 = scoreSpans.getOrNull(1)?.ifBlank { null },
             status = status,
-            format = notes.getOrNull(1)?.ifBlank { null },
+            format = notes.firstOrNull { Regex("^Bo\\d+$", RegexOption.IGNORE_CASE).matches(it) },
             veto = parseVeto(vetoRaw),
             vetoRaw = vetoRaw,
             games = (games + unplayed).filterNot { !it.played && it.map.equals("TBD", true) },
@@ -367,6 +367,7 @@ object VlrParser {
                 val url = btn.selectFirst("a.sm-ext")?.attr("href") ?: return@mapNotNull null
                 StreamLink(btn.selectFirst(".sm-name").txt(), url, btn.flag())
             },
+            odds = parseOdds(doc, team1.name, team2.name),
             vods = doc.select(".sm-vod").mapNotNull { v ->
                 val url = v.selectFirst("a.sm-ext")?.attr("href") ?: return@mapNotNull null
                 val num = v.selectFirst(".sm-vod-num").txt()
@@ -375,6 +376,24 @@ object VlrParser {
             },
         )
     }
+
+    private fun parseOdds(doc: Document, name1: String, name2: String): List<BookOdds> =
+        doc.select("a.match-bet-item").mapNotNull { item ->
+            fun price(el: Element?) = el?.txt()?.toDoubleOrNull()?.takeIf { it > 1.0 }
+            if (item.hasClass("mod-post-odds")) {
+                val short = item.selectFirst(".match-bet-item-return-short") ?: return@mapNotNull null
+                val price = price(short.selectFirst(".match-bet-item-odds")) ?: return@mapNotNull null
+                when (short.selectFirst(".match-bet-item-teamzzz").txt().lowercase(Locale.US)) {
+                    name1.lowercase(Locale.US) -> BookOdds(price, null)
+                    name2.lowercase(Locale.US) -> BookOdds(null, price)
+                    else -> null
+                }
+            } else {
+                val o1 = price(item.selectFirst(".match-bet-item-odds.mod-1"))
+                val o2 = price(item.selectFirst(".match-bet-item-odds.mod-2"))
+                if (o1 == null && o2 == null) null else BookOdds(o1, o2)
+            }
+        }
 
     fun parseVeto(raw: String?): List<VetoStep> {
         if (raw.isNullOrBlank()) return emptyList()

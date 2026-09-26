@@ -107,7 +107,10 @@ fun tagOf(name: String): String {
     val words = name.split(' ').filter { it.isNotBlank() }
     return when {
         words.size == 1 -> name.take(4).uppercase()
-        else -> words.joinToString("") { w -> w.filter(Char::isUpperCase).ifEmpty { w.take(1) } }.take(4).uppercase()
+        // Numbers stay whole ("100 Thieves" -> "100T"); words give their capitals.
+        else -> words.joinToString("") { w ->
+            if (w.all(Char::isDigit)) w else w.filter(Char::isUpperCase).ifEmpty { w.take(1) }
+        }.take(4).uppercase()
     }
 }
 

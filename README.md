@@ -31,6 +31,11 @@ Every push to `main` builds a new APK and publishes it on the [Releases page](..
 - A player stats table (R, ACS, K/D/A, KAST, ADR, HS%, FK/FD) that you can switch between both sides, attack only and defense only. The top performer is highlighted.
 - Stream and VOD links that open in Twitch or YouTube.
 
+**Forecasts**
+- Upcoming matches show each team's chance to win.
+- The match page breaks the forecast down: the likely maps from a veto simulation, the win chance on each of them, and the main reasons in plain words.
+- A **Forecasts** screen shows how accurate the model has been on matches it never saw. The full backtest is in [docs/BACKTEST.md](docs/BACKTEST.md).
+
 **Points**: circuit-point standings for each region, with the teams that qualified for Champions marked.
 
 **History**: a hall of champions built from Liquipedia. Every Masters and Champions winner since 2021, plus the regional winners for each year.
@@ -108,6 +113,39 @@ app/src/main/java/com/vcttracker/
 - Every parser is a pure function and is tested against real pages saved in `app/src/test/resources`. If vlr.gg changes its markup, the failing test points at the section that broke.
 - **Time zones.** vlr.gg writes match-list times in US Central time. The app converts them to your time zone. It also checks those times against vlr's own countdowns, so if the site ever renders another zone, the app notices and corrects for it.
 - **Liquipedia rules.** The app follows Liquipedia's API terms: it sends a descriptive User-Agent, uses gzip, makes at most one parse request every 30 seconds, and caches results for 12 hours.
+
+## The match predictor
+
+It lives in `core/src/main/kotlin/com/vcttracker/model/`, so the app, the trainer and the backtest all run the same code.
+
+1. **Player ratings.** Every player has a skill estimate with an uncertainty attached. An online Bayesian filter updates them after every map, using the round score as the evidence. A team's strength is the average of its current five, so roster moves and rebrands keep the right history.
+2. **Map and region offsets.** Each team has an adjustment per map. Each region has a strength offset that only Masters and Champions results can move.
+3. **Exact series maths.** A round-win edge becomes a map-win chance through the first-to-13, win-by-two formula. Maps are combined into Bo1/Bo3/Bo5 odds state by state, averaging over rating uncertainty with Gauss–Hermite quadrature.
+4. **Veto simulation.** Each team's recent pick and ban habits play out the real VCT veto format hundreds of times to find the likely maps.
+
+The settings were tuned on 2023–24 only. It was then tested walk-forward on 1,098 series from 2025–26 that it had never seen:
+
+| | Accuracy | Log-loss |
+|---|---|---|
+| **Model** | **61.8%** | **0.651** |
+| Team Elo | 59.7% | 0.669 |
+| Coin flip | 50.0% | 0.693 |
+
+- When the model is 70% or more sure, it has been right **79.5%** of the time (112 series).
+- On the 123 series where bookmaker odds survive, it matches the bookmakers' accuracy (66.7%). Their probabilities are still sharper: log-loss 0.582 against 0.626.
+- A calibration layer, a team-level rating and Elo stacking were all tried and dropped, because none of them helped.
+
+The full report, including calibration and per-region results, is in [docs/BACKTEST.md](docs/BACKTEST.md).
+
+To rebuild or re-check it:
+
+```bash
+./gradlew :trainer:run --args="update"     # fetch newly finished matches into model/data/
+./gradlew :trainer:run --args="tune 120"   # search the settings on pre-2025 data only
+./gradlew :trainer:run --args="train"      # walk-forward backtest -> docs/BACKTEST.md + model.json
+```
+
+The daily **Retrain model** workflow runs `update` and `train` and publishes `model.json` to the `model-latest` release. The app checks that release, so forecasts stay current without a new APK.
 
 ## Credits
 

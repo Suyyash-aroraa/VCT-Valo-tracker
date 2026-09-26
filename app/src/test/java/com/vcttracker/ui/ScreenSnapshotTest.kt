@@ -15,6 +15,7 @@ import com.vcttracker.data.MatchDay
 import com.vcttracker.data.TodayData
 import com.vcttracker.data.VlrParser
 import com.vcttracker.data.logoMap
+import com.vcttracker.model.forecast
 import com.vcttracker.data.withLogos
 import com.vcttracker.ui.components.LocalNavigator
 import com.vcttracker.ui.components.Navigator
@@ -54,6 +55,7 @@ class ScreenSnapshotTest {
         override fun match(id: String) = Unit
         override fun team(id: String?) = Unit
         override fun player(id: String?) = Unit
+        override fun model() = Unit
         override fun back() = Unit
     }
 
@@ -112,6 +114,15 @@ class ScreenSnapshotTest {
     @Test fun team() = shot { TeamBody(loaded(VlrParser.parseTeam(fixture("team.html"), "1034"))) }
 
     @Test fun player() = shot { PlayerBody(loaded(VlrParser.parsePlayer(fixture("player.html"), "41224"))) }
+
+    private val model by lazy { com.vcttracker.model.ModelIO.read(java.io.File("src/main/assets/model.json").readText()) }
+
+    @Test fun matchForecast() = shot {
+        val detail = VlrParser.parseMatch(fixture("match_upcoming.html"), "753444")
+        MatchBody(loaded(detail), null, model.forecast(detail), model.report) {}
+    }
+
+    @Test fun modelScreen() = shot { com.vcttracker.ui.screens.ModelBody(model) }
 
     @Test fun history() = shot { HistoryBody(loaded(LiquipediaParser.parseHistory(fixture("liquipedia_vct.json")))) }
 }

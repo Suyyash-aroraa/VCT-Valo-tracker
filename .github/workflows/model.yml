@@ -1,0 +1,47 @@
+name: Retrain model
+
+# Retrains the match predictor daily so installed apps get fresh forecasts
+# without needing a new APK.
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Keeps matches fetched by earlier runs so each day only fetches what's new.
+      - name: Restore match data
+        uses: actions/cache@v4
+        with:
+          path: model/data
+          key: match-data-${{ github.run_id }}
+          restore-keys: match-data-
+
+      - name: Update match data and retrain
+        run: |
+          ./gradlew --no-daemon :trainer:run --args="update"
+          ./gradlew --no-daemon :trainer:run --args="train"
+
+      - name: Publish the model
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: model-latest
+          name: Latest match model
+          body: Retrained match predictor. The app downloads `model.json` from here; see docs/BACKTEST.md for how it performs.
+          files: model/model.json
+          prerelease: true
+          make_latest: false

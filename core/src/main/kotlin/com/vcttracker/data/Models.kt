@@ -55,6 +55,8 @@ data class MatchSummary(
     val eventName: String,
     val eventLogo: String?,
     val series: String,
+    /** Model's pre-match chance that team 1 wins, when a forecast is available. */
+    val forecast: Double? = null,
 )
 
 data class MatchDay(val label: String, val matches: List<MatchSummary>)
@@ -170,6 +172,12 @@ data class StreamLink(val label: String, val url: String, val flag: String?)
 
 data class VetoStep(val team: String, val action: String, val map: String)
 
+/**
+ * One bookmaker's pre-match decimal odds. Before a match both sides are listed;
+ * afterwards vlr.gg only keeps the winner's price, so the other side is null.
+ */
+data class BookOdds(val team1: Double?, val team2: Double?)
+
 data class MatchDetail(
     val id: String,
     val eventId: String?,
@@ -190,6 +198,7 @@ data class MatchDetail(
     val overall: Game?,
     val streams: List<StreamLink>,
     val vods: List<StreamLink>,
+    val odds: List<BookOdds> = emptyList(),
 )
 
 data class StandingRow(val team: Team, val country: String, val points: Int, val qualified: Boolean)

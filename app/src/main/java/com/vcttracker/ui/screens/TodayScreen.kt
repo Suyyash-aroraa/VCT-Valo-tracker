@@ -89,6 +89,7 @@ fun TodayBody(loaded: Loaded<TodayData>, now: Instant) {
             items(live, key = { "live-" + it.id }) { MatchRow(it, now = now) }
         }
         byDay("Up next", next, now, emptyText = "No VCT matches are scheduled in the next few days.")
+        if (next.any { it.forecast != null }) item { ForecastNote() }
         byDay("Results", recent, now, emptyText = null)
         item {
             Text(
@@ -242,4 +243,22 @@ internal fun dateProgress(dates: String, today: LocalDate = LocalDate.now()): Pa
         val day = (today.toEpochDay() - start.toEpochDay() + 1).toInt().coerceIn(1, total)
         day to total
     }.getOrNull()
+}
+
+/** Explains the percentages on upcoming matches and leads to the backtest. */
+@Composable
+private fun ForecastNote() {
+    val c = Vct.colors
+    val nav = LocalNavigator.current
+    Row(
+        Modifier.fillMaxWidth().clickable(role = Role.Button) { nav.model() }
+            .padding(horizontal = 20.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            "Percentages are the model's pre-match forecasts. See how accurate they've been.",
+            style = Vct.type.small, color = c.muted, modifier = Modifier.weight(1f),
+        )
+        androidx.compose.material3.Icon(com.vcttracker.ui.theme.VctIcons.Chevron, null, tint = c.faint, modifier = Modifier.padding(start = 8.dp).width(16.dp).height(16.dp))
+    }
 }

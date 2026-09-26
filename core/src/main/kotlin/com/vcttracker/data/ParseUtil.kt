@@ -10,7 +10,7 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 
-internal const val VLR = "https://www.vlr.gg"
+const val VLR = "https://www.vlr.gg"
 
 /** vlr.gg renders list times for guests in US Central time. */
 internal val VLR_LIST_ZONE: ZoneId = ZoneId.of("America/Chicago")
@@ -76,7 +76,7 @@ internal fun parseMatchTs(ts: String?): Instant? = runCatching {
  * Parses vlr.gg countdowns such as "12h 47m", "2d 11h" or "45m".
  * Returns null when the text has no recognisable units.
  */
-internal fun parseEta(eta: String): Duration? {
+fun parseEta(eta: String): Duration? {
     val parts = Regex("(\\d+)\\s*(mo|y|w|d|h|m)").findAll(eta.lowercase(Locale.US)).toList()
     if (parts.isEmpty()) return null
     var total = Duration.ZERO
