@@ -16,7 +16,11 @@ import java.time.Instant
 import java.time.LocalDate
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import com.vcttracker.model.EventForecast
 import com.vcttracker.model.LiveForecast
+import com.vcttracker.model.eventForecast
+import com.vcttracker.model.stagesOf
+import com.vcttracker.model.subPageSlug
 import com.vcttracker.model.ModelIO
 import com.vcttracker.model.liveForecast
 import com.vcttracker.model.Prediction
@@ -253,6 +257,28 @@ class Repository(private val context: Context) {
 
     /** Forecast updated with the veto, finished maps, the live score and agents, when known. */
     suspend fun liveForecast(detail: MatchDetail): LiveForecast? = predicting { liveForecast(detail) }
+
+    private val eventForecasts = ConcurrentHashMap<String, Pair<Instant, EventForecast?>>()
+
+    /**
+     * Who advances, qualifies and wins: every stage page and the full match list, simulated
+     * from where the event stands. Null value when the model can't forecast this event.
+     */
+    suspend fun eventForecast(id: String, force: Boolean = false): Loaded<EventForecast?> = coroutineScope {
+        val main = event(id, force = force)
+        val pages = main.value.subPages.map { sp ->
+            async { subPageSlug(sp.path) to runCatching { event(id, sp.path, force).value }.getOrNull() }
+        }
+        val matches = async { runCatching { eventMatches(id, force).value }.getOrDefault(emptyList()) }
+        val byslug = pages.map { it.await() }.mapNotNull { (k, v) -> v?.let { k to it } }.toMap()
+        val stages = stagesOf(main.value, byslug)
+        val days = matches.await()
+        // Nothing changes until a result does, so the simulation is reused for a couple of minutes.
+        val cached = eventForecasts[id]
+        val value = if (!force && cached != null && cached.first.plusSeconds(120).isAfter(Instant.now())) cached.second
+        else predicting { eventForecast(stages, days) }.also { eventForecasts[id] = Instant.now() to it }
+        Loaded(value, main.fetchedAt, main.offline)
+    }
 
     companion object {
         const val MODEL_URL = "https://github.com/Suyyash-aroraa/VCT-Valo-tracker/releases/download/model-latest/model.json"

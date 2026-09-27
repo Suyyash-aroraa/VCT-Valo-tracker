@@ -173,6 +173,19 @@ class VlrParserTest {
     }
 
     @Test
+    fun swissTableRecordsComeFromTheirOwnColumns() {
+        val e = VlrParser.parseEvent(fixture("event_swiss.html"), "2282")
+        val table = e.groups.single()
+        assertEquals(8, table.rows.size)
+        val genG = table.rows.first()
+        assertEquals("Gen.G", genG.team.name)
+        assertEquals("2–0", genG.record)
+        assertEquals("4/0", genG.maps)
+        assertTrue(genG.advanced)
+        assertEquals(4, table.rows.count { it.advanced })
+    }
+
+    @Test
     fun circuitStandings() {
         val regions = VlrParser.parseStandings(fixture("standings.html"))
         assertEquals(4, regions.size)

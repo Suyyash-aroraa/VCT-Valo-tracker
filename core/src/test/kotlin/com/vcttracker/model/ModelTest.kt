@@ -188,3 +188,30 @@ class LiveTest {
         assertEquals(1.0, f.maps[0].team1Wins, 0.0)
     }
 }
+
+class EventFormatTest {
+
+    @Test
+    fun swissWithoutPrecedentPlaysToTwoOrThree() {
+        assertEquals(2 to 2, EventFormats.defaultSwiss(8))
+        assertEquals(3 to 3, EventFormats.defaultSwiss(16))
+    }
+
+    @Test
+    fun prizeNotesBecomeDestinations() {
+        assertEquals("Masters London", qualificationOf("Masters London Team Heretics is already qualified for EWC, spot moves to Team Vitality."))
+        assertEquals("Champions", qualificationOf("Champions"))
+        assertEquals(null, qualificationOf("Champions slot via points"))
+        assertEquals(null, qualificationOf(null))
+    }
+
+    @Test
+    fun overallTableReplacesItsGroups() {
+        fun row(n: String) = com.vcttracker.data.GroupRow(com.vcttracker.data.Team(n), "", "0–0", "0/0", "", "", false, false)
+        fun table(t: String, vararg teams: String) = com.vcttracker.data.GroupTable(t, teams.map(::row))
+        val overall = table("Overall", "a", "b", "c", "d")
+        assertEquals(listOf(overall), EventFormats.rankingTables(listOf(overall, table("Alpha", "a", "b"), table("Omega", "c", "d"))))
+        val split = listOf(table("Alpha", "a", "b"), table("Omega", "c", "d"))
+        assertEquals(split, EventFormats.rankingTables(split))
+    }
+}

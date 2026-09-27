@@ -35,7 +35,8 @@ Every push to `main` builds a new APK and publishes it on the [Releases page](..
 - Upcoming matches show each team's chance to win.
 - The match page breaks the forecast down: the likely maps from a veto simulation, the win chance on each of them, and the main reasons in plain words.
 - **Live forecasts:** once a match starts, the forecast updates with the maps already won and the live map's exact round score and sides.
-- A **Forecasts** screen shows how accurate the model has been on matches it never saw. The full backtest is in [docs/BACKTEST.md](docs/BACKTEST.md).
+- **Event forecasts:** each event has a Forecast tab with every team's chance to get out of each stage, to qualify for Masters or Champions, and to win the event. The rest of the event is simulated 2,000 times from where it stands, keeping results already in.
+- A **Forecasts** screen shows how accurate the model has been on matches and events it never saw. The full backtest is in [docs/BACKTEST.md](docs/BACKTEST.md).
 
 **Points**: circuit-point standings for each region, with the teams that qualified for Champions marked.
 
@@ -126,6 +127,8 @@ It lives in `core/src/main/kotlin/com/vcttracker/model/`, so the app, the traine
 
 5. **Live updates.** Once a match starts, finished maps count as won or lost. The live map's chance comes from an exact recursion over its round score that knows which side each team is on (halves swap at 13, overtime swaps every round).
 
+6. **Whole events.** vlr.gg shows brackets but not how they're wired, so the wiring is read from finished events: each team's previous match shows which slot feeds which, and where losers drop. Group stages, Swiss stages and brackets are learned shape by shape, so a new event can be assembled from parts seen before. Its remaining matches are then simulated thousands of times.
+
 **Safety gate.** Every retrain checks each live signal against the pre-match forecast on the same unseen matches, and switches off any that don't beat it. On the current data:
 
 | Live signal | Unseen 2025–26 result | Status |
@@ -134,6 +137,7 @@ It lives in `core/src/main/kotlin/com/vcttracker/model/`, so the app, the traine
 | Map after 6 / 12 / 18 rounds | 71.2% / 77.4% / 81.3% (at 0–0: 57.3%) | on |
 | Real maps after the veto | 62.2%, but log-loss slightly worse than pre-match | off |
 | Agent comps (agent-on-map meta, player comfort) | helped slightly on 2023–24, slightly worse on 2025–26 | off |
+| Event forecasts (advance, qualify, win) | better than knowing nothing on all three questions, 13 events | on |
 
 The settings were tuned on 2023–24 only. It was then tested walk-forward on 1,098 series from 2025–26 that it had never seen:
 
@@ -147,17 +151,28 @@ The settings were tuned on 2023–24 only. It was then tested walk-forward on 1,
 - On the 123 series where bookmaker odds survive, it matches the bookmakers' accuracy (66.7%). Their probabilities are still sharper: log-loss 0.582 against 0.626.
 - A calibration layer, a team-level rating and Elo stacking were all tried and dropped, because none of them helped.
 
-The full report, including calibration and per-region results, is in [docs/BACKTEST.md](docs/BACKTEST.md).
+**Events**, forecast before each of 13 unseen 2025–26 events started, against a baseline that knows the format but gives every team the same chance (log-loss, lower is better):
+
+| Question | Model | Knowing nothing |
+|---|---|---|
+| Who wins the event | 1.870 | 2.500 |
+| Who gets out of each stage | 0.622 | 0.655 |
+| Who qualifies for Masters / Champions | 0.455 | 0.495 |
+
+On average the model gave the eventual winner 17.8%, against 8.3% for a random pick. The favourite won 4 of 13, because whole events are hard to call.
+
+The full report, including calibration, per-region results and every event, is in [docs/BACKTEST.md](docs/BACKTEST.md).
 
 To rebuild or re-check it:
 
 ```bash
 ./gradlew :trainer:run --args="update"     # fetch newly finished matches into model/data/
+./gradlew :trainer:run --args="events"     # fetch event pages (brackets, groups, prizes) into model/data/events/
 ./gradlew :trainer:run --args="tune 120"   # search the settings on pre-2025 data only
 ./gradlew :trainer:run --args="train"      # walk-forward backtest -> docs/BACKTEST.md + model.json
 ```
 
-The daily **Retrain model** workflow runs `update` and `train` and publishes `model.json` to the `model-latest` release. The app checks that release, so forecasts stay current without a new APK.
+The daily **Retrain model** workflow runs `update`, `events` and `train` and publishes `model.json` to the `model-latest` release. The app checks that release, so forecasts stay current without a new APK.
 
 ## Credits
 

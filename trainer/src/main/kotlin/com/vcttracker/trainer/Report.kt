@@ -17,6 +17,7 @@ object Report {
         train: List<Forecast>,
         hyper: Hyper,
         gates: List<String> = emptyList(),
+        events: List<EventResult> = emptyList(),
     ): String = buildString {
         val first = test.minOfOrNull { it.match.time }?.toString()?.take(10)
         val last = test.maxOfOrNull { it.match.time }?.toString()?.take(10)
@@ -111,12 +112,36 @@ object Report {
         val ms = Backtest.score(maps.map { it.first }, maps.map { it.second })
         appendLine("**Map level** (with the map known): ${ms.n} maps, ${pct(ms.accuracy)} accuracy, log-loss ${f3(ms.logLoss)}.")
         appendLine()
+        r.events?.let { e ->
+            appendLine("## Events: who advances, qualifies and wins")
+            appendLine()
+            appendLine("Every event that started from ${r.testFrom} on was simulated 2,000 times before its first match, using only earlier results. Formats are learned stage by stage from events that had already finished, so an event is forecast only once each of its bracket shapes has been seen played out. The baseline for each question knows the format but nothing about the teams: every team has the same chance.")
+            appendLine()
+            appendLine("| Question | Forecasts | Model log-loss | Knowing nothing |")
+            appendLine("|---|---|---|---|")
+            appendLine("| Who wins the event | ${e.withWinner} events | ${f3(e.winnerLogLoss)} | ${f3(e.uniformLogLoss)} |")
+            appendLine("| Who gets out of each stage | ${e.advanceN} team-stages | ${f3(e.advanceLogLoss)} | ${f3(e.advanceBase)} |")
+            appendLine("| Who qualifies for Masters / Champions | ${e.qualifyN} team-slots | ${f3(e.qualifyLogLoss)} | ${f3(e.qualifyBase)} |")
+            appendLine()
+            appendLine("On average the model gave the eventual winner **${pct(e.winnerChance)}** before the event, against ${pct(e.uniformChance)} for a random pick. The favourite won ${e.favouriteWon} of ${e.withWinner}: even a clear favourite rarely has better than a one-in-three chance to win a whole event.")
+            appendLine()
+            if (events.isNotEmpty()) {
+                appendLine("| Event | Teams | Winner | Chance given to the winner | Model favourite |")
+                appendLine("|---|---|---|---|---|")
+                events.forEach { ev ->
+                    val fav = ev.favourite ?: "–"
+                    appendLine("| ${ev.event.summary.name} | ${ev.teams} | ${ev.winner ?: "–"} | ${ev.winnerChance?.let(::pct) ?: "–"} | $fav |")
+                }
+                appendLine()
+            }
+        }
         appendLine("## How it works")
         appendLine()
         appendLine("1. **Player ratings, updated on round margins.** Every player has a skill estimate with an uncertainty attached. After each map, the round score (for example 13–8) updates everyone who played. A team's strength is the average of its five current players, so roster moves, loans and rebrands carry the right history with them.")
         appendLine("2. **Map offsets and region offsets.** Each team has its own adjustment per map. Each region has a strength offset that only cross-region matches can move, i.e. Masters and Champions.")
         appendLine("3. **Round → map → series.** The round-win edge becomes a map-win probability through the exact race-to-13 formula with win-by-two overtime. Maps are then combined into Bo1/Bo3/Bo5 odds with a state-by-state calculation. Uncertainty about the rosters is averaged over with Gauss–Hermite quadrature, so a barely known lineup gives more cautious odds.")
         appendLine("4. **Veto simulation.** Each team's recent pick and ban habits drive a Monte-Carlo simulation of the actual VCT veto format. The series odds are averaged over the maps likely to be played.")
+        appendLine("5. **Events.** vlr.gg doesn't publish how brackets are wired, so the wiring is read from finished events: a team's previous match shows which slot feeds which. Group stages, Swiss stages and brackets are then played out thousands of times with the match model, keeping every result already in.")
         appendLine()
         appendLine("### Tried and rejected")
         appendLine()
@@ -131,6 +156,8 @@ object Report {
         appendLine("- Pro VCT is very even by design: over half of all series are forecast between 50% and 60%, and those are close to coin flips for any model.")
         appendLine("- Bookmakers do better on the matches where their prices survive. They see things this model can't, such as stand-ins, illness and scrim results.")
         appendLine("- Lineups are taken from each team's latest match, so a surprise substitution isn't known until the next match is played.")
+        appendLine("- Event forecasts need every bracket shape to have been played out before. A format that's new this year (every 2026 Kickoff, the 2026 Stage 2 play-ins) gets no forecast until one has finished, and the app says so.")
+        appendLine("- \"Qualifies\" means qualifying by placing at that event. Champions spots earned through season circuit points aren't simulated.")
         appendLine()
         appendLine("### Tuned settings (fitted before ${r.testFrom} only)")
         appendLine()

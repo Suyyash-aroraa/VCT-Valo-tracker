@@ -25,6 +25,7 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.vcttracker.data.Loaded
+import com.vcttracker.model.EventReport
 import com.vcttracker.model.ModelReport
 import com.vcttracker.model.TrainedModel
 import com.vcttracker.ui.components.EmptyNote
@@ -77,6 +78,7 @@ fun ModelBody(model: TrainedModel) {
             item { Baselines(r) }
             item { CalibrationChart(r) }
             if (r.live.isNotEmpty()) item { LiveTable(r) }
+            r.events?.let { e -> item { EventsTable(e) } }
         }
         item { HowItWorks() }
         item {
@@ -215,6 +217,45 @@ private fun LiveTable(r: ModelReport) {
     }
 }
 
+/** Whole-event forecasts against a baseline that knows the format but nothing about the teams. */
+@Composable
+private fun EventsTable(e: EventReport) {
+    val c = Vct.colors
+    Column {
+        SectionHeader("Whole events", Modifier.padding(horizontal = 20.dp), trailing = "${e.events} events")
+        Text(
+            "Each unseen event, simulated before its first match. The baseline knows the format but gives every team the same chance. " +
+                "On average the model gave the eventual winner ${pct(e.winnerChance)}, against ${pct(e.uniformChance)} for a random pick. Lower log-loss is better.",
+            style = Vct.type.small, color = c.muted, modifier = Modifier.padding(horizontal = 20.dp),
+        )
+        Spacer(Modifier.height(8.dp))
+        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 4.dp)) {
+            MonoLabel("Question", Modifier.weight(1f), color = c.faint)
+            MonoLabel("Base", Modifier.width(64.dp), color = c.faint)
+            MonoLabel("Model", Modifier.width(64.dp), color = c.faint)
+        }
+        listOf(
+            Triple("Who wins", "${e.withWinner} events", e.winnerLogLoss to e.uniformLogLoss),
+            Triple("Who gets out of each stage", "${e.advanceN} team-stages", e.advanceLogLoss to e.advanceBase),
+            Triple("Who qualifies", "${e.qualifyN} team-slots", e.qualifyLogLoss to e.qualifyBase),
+        ).forEach { (q, detail, ll) ->
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 8.dp).semantics(mergeDescendants = true) {
+                    contentDescription = "$q: model log-loss %.3f, baseline %.3f".format(ll.first, ll.second)
+                },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(q, style = Vct.type.bodyStrong, color = c.ink)
+                    MonoLabel(detail, color = c.faint)
+                }
+                Text("%.3f".format(ll.second), style = Vct.type.data, color = c.muted, modifier = Modifier.width(64.dp))
+                Text("%.3f".format(ll.first), style = Vct.type.data.copy(fontWeight = FontWeight.Medium), color = c.ink, modifier = Modifier.width(64.dp))
+            }
+        }
+    }
+}
+
 @Composable
 private fun HowItWorks() {
     val c = Vct.colors
@@ -224,6 +265,7 @@ private fun HowItWorks() {
         "Round to series" to "A round edge becomes map odds through the exact first-to-13, win-by-two maths. Maps are then combined into Bo1, Bo3 or Bo5 odds, averaging over how sure we are about each roster.",
         "Veto simulation" to "Each team's recent picks and bans play out the real VCT veto hundreds of times to find the maps most likely to be played.",
         "Live updates" to "Once play starts, maps already won count as won, and the live map's odds come from its exact round score and which side each team is on. Each live signal is kept only if it beat the pre-match forecast on unseen matches; agent comps and the post-veto map update didn't, so they're off.",
+        "Whole events" to "Bracket wiring is read from finished events, since vlr.gg doesn't publish it. Each event's remaining matches are then played out thousands of times with the match model, keeping every result already in.",
     )
     Column {
         SectionHeader("How a forecast is built", Modifier.padding(horizontal = 20.dp))

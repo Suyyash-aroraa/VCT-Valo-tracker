@@ -15,6 +15,7 @@ private val DATA = File(System.getenv("VCT_DATA") ?: "model/data/matches.jsonl")
 private val HYPER = File("model/hyper.json")
 private val MODEL_OUT = listOf(File("model/model.json"), File("app/src/main/assets/model.json"))
 private val REPORT = File("docs/BACKTEST.md")
+private val EVENTS = File("model/data/events")
 
 /** Ratings need a few months of history before their forecasts mean anything. */
 private val WARMUP_END: Instant = Instant.parse("2023-07-01T00:00:00Z")
@@ -34,6 +35,36 @@ fun main(args: Array<String>) {
         "rebuild" -> Dataset.update(File(args.getOrElse(1) { "model/data/rebuild.jsonl" }))
         "tune" -> tune(args.getOrNull(1)?.toInt() ?: 80)
         "tune-agents" -> tuneAgents(args.getOrNull(1)?.toInt() ?: 40)
+        "events" -> EventArchive(EVENTS).update()
+        "events-backtest" -> {
+            val data = Dataset.load(DATA)
+            val hyper = (if (HYPER.exists()) hyperFrom(JSONObject(HYPER.readText())) else Hyper()).copy(agentSd = 0.0, comfortSd = 0.0)
+            val events = EventBacktest.load(EventArchive(EVENTS))
+            val from = Instant.parse(args.getOrElse(1) { "2023-07-01T00:00:00Z" })
+            val results = EventBacktest.run(data, hyper, events, from, runs = 2000, log = ::println)
+            EventBacktest.summary(results.filter { it.event.start >= TEST_FROM }).forEach { println("TEST " + it) }
+            EventBacktest.summary(results.filter { it.event.start < TEST_FROM }).forEach { println("EARLIER " + it) }
+        }
+        "shapes" -> {
+            val archive = EventArchive(EVENTS)
+            for (year in 2023..LocalDate.now().year) {
+                val season = archive.season(year) ?: continue
+                for (e in season.events) {
+                    println("== $year ${e.name} [${e.stage} ${e.region}] ${e.status}")
+                    for ((slug, d) in archive.stages(e.id)) {
+                        val brackets = d.sections.joinToString(" | ") { s ->
+                            s.title + ": " + s.brackets.joinToString(" ; ") { b ->
+                                (if (b.isLower) "L[" else "U[") + b.columns.joinToString(",") { c -> "${c.label}=${c.matches.size}" } + "]"
+                            }
+                        }
+                        val groups = d.groups.joinToString(" ") { "${it.title}(${it.rows.size}, adv=${it.rows.count { r -> r.advanced }})" }
+                        println("   $slug: $brackets ${if (groups.isNotEmpty()) "GROUPS $groups" else ""}")
+                    }
+                    val notes = archive.stages(e.id).firstOrNull()?.second?.prizes.orEmpty().filter { it.note != null }.map { "${it.place}:${it.note}" }.distinct()
+                    if (notes.isNotEmpty()) println("   notes: $notes")
+                }
+            }
+        }
         "train" -> train()
         else -> println("usage: update | tune [trials] | train")
     }
@@ -118,17 +149,29 @@ private fun train() {
     val scorePass = scoreLl <= startLl
     gateLog += "Live round score: map log-loss %.4f after 6 rounds vs %.4f at 0–0 on %d maps -> %s".format(
         scoreLl, startLl, inMap6.size, if (scorePass) "KEPT" else "SWITCHED OFF")
-    val gates = LiveGates(maps = mapsPass, live = livePass && scorePass)
+    // Gate 4, events: forecasts of who advances, qualifies and wins ship only if every measure
+    // beats knowing nothing about the teams, on events that started after TEST_FROM.
+    val archive = EventArchive(EVENTS)
+    val events = EventBacktest.load(archive)
+    val eventResults = if (events.isEmpty()) emptyList() else
+        EventBacktest.run(data, shipped, events, TEST_FROM, runs = 2000, log = ::println).filter { it.event.start < testUntil }
+    val eventReport = eventResults.takeIf { it.isNotEmpty() }?.let(EventBacktest::report)
+    val eventsPass = eventReport?.passes == true
+    if (eventReport != null) gateLog += "Events: winner log-loss %.3f vs %.3f uniform, advancing %.3f vs %.3f, qualifying %.3f vs %.3f on %d events -> %s".format(
+        eventReport.winnerLogLoss, eventReport.uniformLogLoss, eventReport.advanceLogLoss, eventReport.advanceBase,
+        eventReport.qualifyLogLoss, eventReport.qualifyBase, eventReport.events, if (eventsPass) "KEPT" else "SWITCHED OFF")
+    val book = EventBacktest.book(events, Instant.now())
+    val gates = LiveGates(maps = mapsPass, live = livePass && scorePass, events = eventsPass)
     gateLog.forEach(::println)
 
-    val report = Backtest.report(test, trainedOn = train.size, testFrom = TEST_FROM.toString().take(10))
+    val report = Backtest.report(test, trainedOn = train.size, testFrom = TEST_FROM.toString().take(10)).copy(events = eventReport)
     REPORT.parentFile.mkdirs()
-    REPORT.writeText(Report.markdown(report, test, train, shipped, gateLog))
+    REPORT.writeText(Report.markdown(report, test, train, shipped, gateLog, eventResults))
     println(REPORT.readText())
 
     // The shipped model has seen every match up to today.
     val predictor = chosen.second
-    val json = ModelIO.write(TrainedModel(predictor, Instant.now(), report, gates))
+    val json = ModelIO.write(TrainedModel(predictor, Instant.now(), report, gates, book))
     MODEL_OUT.forEach { it.parentFile.mkdirs(); it.writeText(json) }
     println("Wrote model (${json.length / 1024} KB)")
     println("Latest match in data: ${data.lastOrNull()?.time} (today ${LocalDate.now()})")

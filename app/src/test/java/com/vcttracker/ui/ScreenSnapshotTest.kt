@@ -99,11 +99,11 @@ class ScreenSnapshotTest {
     }
 
     @Test fun eventPrizes() = shot {
-        EventBody("2977", loaded(VlrParser.parseEvent(fixture("event_playoffs.html"), "2977")), 2, {}, {})
+        EventBody("2977", loaded(VlrParser.parseEvent(fixture("event_playoffs.html"), "2977")), 3, {}, {})
     }
 
     @Test fun eventTeams() = shot {
-        EventBody("2766", loaded(VlrParser.parseEvent(fixture("event_champions.html"), "2766")), 3, {}, {})
+        EventBody("2766", loaded(VlrParser.parseEvent(fixture("event_champions.html"), "2766")), 4, {}, {})
     }
 
     @Test fun match() = shot { MatchBody(loaded(VlrParser.parseMatch(fixture("match.html"), "753450")), 1) {} }
@@ -126,6 +126,11 @@ class ScreenSnapshotTest {
     @Test fun matchLive() = shot {
         val detail = VlrParser.parseMatch(fixture("match_live.html"), "753444")
         MatchBody(loaded(detail), null, model.forecast(detail), model.report, model.liveForecast(detail)) {}
+    }
+
+    @Test fun eventForecast() = shot {
+        val f = com.vcttracker.EventForecastTest().champions()!!
+        androidx.compose.foundation.lazy.LazyColumn { item { com.vcttracker.ui.components.EventForecastBody(f, model.report?.events) } }
     }
 
     @Test fun modelScreen() = shot { com.vcttracker.ui.screens.ModelBody(model) }

@@ -42,6 +42,7 @@ jobs:
       - name: Update match data and retrain the predictor
         run: |
           ./gradlew --no-daemon :trainer:run --args="update"
+          ./gradlew --no-daemon :trainer:run --args="events"
           ./gradlew --no-daemon :trainer:run --args="train"
 
       - name: Test and build

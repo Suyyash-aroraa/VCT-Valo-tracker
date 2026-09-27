@@ -40,10 +40,15 @@ import com.vcttracker.data.Loaded
 import com.vcttracker.data.MatchDay
 import com.vcttracker.data.MatchStatus
 import com.vcttracker.data.PrizeRow
+import com.vcttracker.model.EventForecast
+import com.vcttracker.model.ModelReport
 import com.vcttracker.ui.components.BracketSectionView
 import com.vcttracker.ui.components.ChoiceRow
 import com.vcttracker.ui.components.CountryTag
 import com.vcttracker.ui.components.EmptyNote
+import com.vcttracker.ui.components.EventForecastBody
+import com.vcttracker.ui.components.SkeletonList
+import com.vcttracker.ui.components.Ui
 import com.vcttracker.ui.components.LoadedContent
 import com.vcttracker.ui.components.LocalNavigator
 import com.vcttracker.ui.components.MatchRow
@@ -59,7 +64,7 @@ import com.vcttracker.ui.components.shortEvent
 import com.vcttracker.ui.theme.ChamferSmall
 import com.vcttracker.ui.theme.Vct
 
-private val TABS = listOf("Bracket", "Matches", "Prizes", "Teams")
+private val TABS = listOf("Bracket", "Matches", "Forecast", "Prizes", "Teams")
 
 @Composable
 fun EventScreen(id: String) {
@@ -83,8 +88,9 @@ fun EventBody(id: String, loaded: Loaded<EventDetail>, tab: Int, onTab: (Int) ->
         when (tab) {
             0 -> bracketTab(e, onSubPage)
             1 -> item { EventMatches(id) }
-            2 -> prizesTab(e.prizes)
-            3 -> teamsTab(e.teams)
+            2 -> item { EventForecastTab(id) }
+            3 -> prizesTab(e.prizes)
+            4 -> teamsTab(e.teams)
         }
         item { Spacer(Modifier.height(40.dp)) }
     }
@@ -223,6 +229,32 @@ private fun EventMatches(id: String) {
             }
             is com.vcttracker.ui.components.Ui.Failed -> EmptyNote(s.message)
             com.vcttracker.ui.components.Ui.Loading -> com.vcttracker.ui.components.SkeletonList(4)
+        }
+    }
+}
+
+@Composable
+private fun EventForecastTab(id: String) {
+    val handle = rememberLoad<EventForecast?>("ef", id) { force -> eventForecast(id, force) }
+    val report = rememberLoad<ModelReport?>("model-report") { _ ->
+        Loaded(model()?.report, java.time.Instant.now(), offline = false)
+    }
+    when (val s = handle.state) {
+        is Ui.Ready -> {
+            val f = s.data.value
+            if (f == null) {
+                EmptyNote(
+                    "No forecast for this event yet. It's made once every stage's format has been seen played out " +
+                        "in an earlier event, so brand-new formats, and brackets that haven't been drawn, have to wait.",
+                )
+            } else {
+                EventForecastBody(f, (report.state as? Ui.Ready)?.data?.value?.events)
+            }
+        }
+        is Ui.Failed -> EmptyNote(s.message)
+        Ui.Loading -> Column {
+            MonoLabel("Simulating the rest of the event…", Modifier.padding(start = 20.dp, top = 16.dp), color = Vct.colors.faint)
+            SkeletonList(6)
         }
     }
 }

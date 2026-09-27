@@ -17,7 +17,30 @@ data class ModelReport(
     val calibration: List<Triple<Double, Double, Int>>,
     /** Accuracy at each live checkpoint: before the veto, maps known, after map 1, mid-map. */
     val live: List<LiveRow> = emptyList(),
+    val events: EventReport? = null,
 )
+
+/** Event forecasts made before each unseen event started, against knowing nothing about the teams. */
+data class EventReport(
+    val events: Int,
+    /** Average chance the forecast gave the eventual winner, and what picking at random would give. */
+    val winnerChance: Double,
+    val uniformChance: Double,
+    val winnerLogLoss: Double,
+    val uniformLogLoss: Double,
+    val favouriteWon: Int,
+    val withWinner: Int,
+    val advanceN: Int,
+    val advanceLogLoss: Double,
+    val advanceBase: Double,
+    val qualifyN: Int,
+    val qualifyLogLoss: Double,
+    val qualifyBase: Double,
+) {
+    /** Better than knowing nothing on every measure: the rule for shipping event forecasts. */
+    val passes: Boolean get() = events > 0 && winnerLogLoss < uniformLogLoss &&
+        (advanceN == 0 || advanceLogLoss < advanceBase) && (qualifyN == 0 || qualifyLogLoss < qualifyBase)
+}
 
 data class LiveRow(val moment: String, val forecasts: Int, val accuracy: Double, val logLoss: Double)
 
@@ -33,6 +56,8 @@ data class LiveGates(
     val maps: Boolean = true,
     /** Update during the match (finished maps, live score). */
     val live: Boolean = true,
+    /** Event forecasts (who advances, qualifies, wins): only if they beat knowing nothing. */
+    val events: Boolean = false,
 )
 
 class TrainedModel(
@@ -40,6 +65,8 @@ class TrainedModel(
     val generatedAt: Instant,
     val report: ModelReport?,
     val gates: LiveGates = LiveGates(),
+    /** Stage formats learned from finished events, for event forecasts. */
+    val book: FormatBook? = null,
 ) {
 
     /** Team ids by lowercase name, for screens that only know names. */
@@ -58,7 +85,7 @@ object ModelIO {
         val root = JSONObject()
             .put("version", 2)
             .put("generatedAt", model.generatedAt.epochSecond)
-            .put("gates", JSONObject().put("maps", model.gates.maps).put("live", model.gates.live))
+            .put("gates", JSONObject().put("maps", model.gates.maps).put("live", model.gates.live).put("events", model.gates.events))
             .put("hyper", JSONObject()
                 .put("roundWeight", h.roundWeight).put("playerSd", h.playerSd).put("newcomerMean", h.newcomerMean)
                 .put("driftPerDay", h.driftPerDay).put("seasonSd", h.seasonSd).put("mapSd", h.mapSd)
@@ -95,8 +122,10 @@ object ModelIO {
                 .put("calibration", JSONArray(r.calibration.map { JSONArray(listOf(it.first, it.second, it.third)) }))
                 .put("live", JSONArray(r.live.map {
                     JSONObject().put("moment", it.moment).put("n", it.forecasts).put("accuracy", it.accuracy).put("logLoss", it.logLoss)
-                })))
+                }))
+                .also { o -> r.events?.let { o.put("events", eventReport(it)) } })
         }
+        model.book?.let { root.put("book", book(it)) }
         return root.toString()
     }
 
@@ -162,10 +191,77 @@ object ModelIO {
                         LiveRow(x.getString("moment"), x.getInt("n"), x.getDouble("accuracy"), x.getDouble("logLoss"))
                     }
                 }.orEmpty(),
+                events = r.optJSONObject("events")?.let(::eventReport),
             )
         }
-        val gates = o.optJSONObject("gates")?.let { LiveGates(it.optBoolean("maps", true), it.optBoolean("live", true)) } ?: LiveGates()
-        return TrainedModel(p, Instant.ofEpochSecond(o.getLong("generatedAt")), report, gates)
+        val gates = o.optJSONObject("gates")?.let { LiveGates(it.optBoolean("maps", true), it.optBoolean("live", true), it.optBoolean("events", false)) } ?: LiveGates()
+        return TrainedModel(p, Instant.ofEpochSecond(o.getLong("generatedAt")), report, gates, o.optJSONObject("book")?.let(::book))
+    }
+
+    private fun eventReport(e: EventReport) = JSONObject()
+        .put("events", e.events).put("winnerChance", e.winnerChance).put("uniformChance", e.uniformChance)
+        .put("winnerLogLoss", e.winnerLogLoss).put("uniformLogLoss", e.uniformLogLoss)
+        .put("favouriteWon", e.favouriteWon).put("withWinner", e.withWinner)
+        .put("advanceN", e.advanceN).put("advanceLogLoss", e.advanceLogLoss).put("advanceBase", e.advanceBase)
+        .put("qualifyN", e.qualifyN).put("qualifyLogLoss", e.qualifyLogLoss).put("qualifyBase", e.qualifyBase)
+
+    private fun eventReport(o: JSONObject) = EventReport(
+        o.getInt("events"), o.getDouble("winnerChance"), o.getDouble("uniformChance"),
+        o.getDouble("winnerLogLoss"), o.getDouble("uniformLogLoss"), o.getInt("favouriteWon"), o.getInt("withWinner"),
+        o.getInt("advanceN"), o.getDouble("advanceLogLoss"), o.getDouble("advanceBase"),
+        o.getInt("qualifyN"), o.getDouble("qualifyLogLoss"), o.getDouble("qualifyBase"),
+    )
+
+    private fun feed(f: Feed) = when (f) {
+        Feed.Seed -> "S"
+        is Feed.Winner -> "W:" + f.match
+        is Feed.Loser -> "L:" + f.match
+    }
+
+    private fun feed(s: String): Feed = when {
+        s.startsWith("W:") -> Feed.Winner(s.drop(2))
+        s.startsWith("L:") -> Feed.Loser(s.drop(2))
+        else -> Feed.Seed
+    }
+
+    private fun strings(m: Map<String, String>) = JSONObject(m as Map<*, *>)
+
+    private fun strings(o: JSONObject): Map<String, String> = o.keys().asSequence().associateWith { o.getString(it) }
+
+    private fun book(b: FormatBook) = JSONObject()
+        .put("brackets", JSONObject().also { o ->
+            b.brackets.forEach { (shape, t) ->
+                o.put(shape, JSONObject()
+                    .put("feeds", JSONObject().also { f -> t.feeds.forEach { (k, v) -> f.put(k, JSONArray(v.map(::feed))) } })
+                    .put("order", JSONArray(t.order))
+                    .put("eliminations", strings(t.eliminations))
+                    .put("final", t.finalMatch ?: "")
+                    .put("support", t.support))
+            }
+        })
+        .put("swiss", JSONObject().also { o -> b.swiss.forEach { (k, v) -> o.put(k, JSONArray(listOf(v.first, v.second))) } })
+        .put("advancing", JSONObject(b.advancing as Map<*, *>))
+        .put("seeding", JSONObject().also { o -> b.seeding.forEach { (k, v) -> o.put(k, strings(v)) } })
+
+    private fun book(o: JSONObject): FormatBook {
+        val br = o.getJSONObject("brackets")
+        val brackets = br.keys().asSequence().associateWith { shape ->
+            val t = br.getJSONObject(shape)
+            val feeds = t.getJSONObject("feeds").let { f ->
+                f.keys().asSequence().associateWith { k -> f.getJSONArray(k).let { a -> List(a.length()) { feed(a.getString(it)) } } }
+            }
+            val order = t.getJSONArray("order").let { a -> List(a.length()) { a.getString(it) } }
+            BracketTemplate(shape, feeds, order, strings(t.getJSONObject("eliminations")), t.getString("final").ifBlank { null }, t.getInt("support"))
+        }
+        val sw = o.getJSONObject("swiss")
+        val adv = o.getJSONObject("advancing")
+        val seeds = o.getJSONObject("seeding")
+        return FormatBook(
+            brackets = brackets,
+            swiss = sw.keys().asSequence().associateWith { k -> sw.getJSONArray(k).let { it.getInt(0) to it.getInt(1) } },
+            advancing = adv.keys().asSequence().associateWith { adv.getInt(it) },
+            seeding = seeds.keys().asSequence().associateWith { strings(seeds.getJSONObject(it)) },
+        )
     }
 
     private fun round(x: Double) = Math.round(x * 1e5) / 1e5

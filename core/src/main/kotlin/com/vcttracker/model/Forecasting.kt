@@ -52,3 +52,13 @@ fun TrainedModel.liveForecast(d: MatchDetail): LiveForecast? {
     val preMatch = predictor.predict(a, b, bestOf, today(), vetoRuns = 200).team1Wins
     return predictor.predictLive(a, b, state, today(), preMatch)
 }
+
+/**
+ * Who advances, qualifies and wins, for an event from where it stands. Null when the event
+ * backtest didn't beat knowing nothing, or a stage's format hasn't been seen finished yet.
+ */
+fun TrainedModel.eventForecast(stages: List<EventStage>, matches: List<com.vcttracker.data.MatchDay>, runs: Int = 2000): EventForecast? {
+    if (!gates.events) return null
+    val b = book ?: return null
+    return forecastEvent(predictor, b, stages, matches, teamIdsByName, Instant.now(), runs)
+}

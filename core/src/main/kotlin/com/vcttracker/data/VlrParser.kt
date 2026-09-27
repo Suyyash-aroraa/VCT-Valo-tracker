@@ -233,7 +233,11 @@ object VlrParser {
                 title = table.selectFirst("th.mod-title").txt(),
                 rows = table.select("tbody tr").map { tr ->
                     val a = tr.selectFirst("a.event-group-team")
-                    val stats = tr.select("td.mod-stat").map { collapse(it.text()).replace(" ", "") }
+                    // Round-robin tables put "W–L" in the first stat cell; Swiss tables give W, L and T
+                    // their own columns ahead of the stats.
+                    val wlt = tr.select("td.mod-record").map { it.txt() }
+                    val stats = (if (wlt.size >= 2) listOf("${wlt[0]}–${wlt[1]}") else emptyList()) +
+                        tr.select("td.mod-stat").map { collapse(it.text()).replace(" ", "") }
                     GroupRow(
                         team = Team(
                             name = a?.selectFirst(".event-group-team-name").own(),
