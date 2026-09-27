@@ -16,6 +16,7 @@ import com.vcttracker.data.TodayData
 import com.vcttracker.data.VlrParser
 import com.vcttracker.data.logoMap
 import com.vcttracker.model.forecast
+import com.vcttracker.model.liveForecast
 import com.vcttracker.data.withLogos
 import com.vcttracker.ui.components.LocalNavigator
 import com.vcttracker.ui.components.Navigator
@@ -120,6 +121,11 @@ class ScreenSnapshotTest {
     @Test fun matchForecast() = shot {
         val detail = VlrParser.parseMatch(fixture("match_upcoming.html"), "753444")
         MatchBody(loaded(detail), null, model.forecast(detail), model.report) {}
+    }
+
+    @Test fun matchLive() = shot {
+        val detail = VlrParser.parseMatch(fixture("match_live.html"), "753444")
+        MatchBody(loaded(detail), null, model.forecast(detail), model.report, model.liveForecast(detail)) {}
     }
 
     @Test fun modelScreen() = shot { com.vcttracker.ui.screens.ModelBody(model) }

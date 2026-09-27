@@ -21,6 +21,12 @@ class DatasetTest {
         assertEquals(listOf("Lotus", "Summit"), rec.maps.map { it.map })
         assertEquals(13 to 8, rec.maps[0].rounds1 to rec.maps[0].rounds2)
         assertEquals(5, rec.maps[0].players1.size)
+        assertEquals("neon", rec.maps[0].agents1[0])
+        assertEquals(5, rec.maps[0].agents2.size)
+        // Round 1 went to EDG on attack, so LOUD (team 1) was defending.
+        assertEquals("2a", rec.maps[0].rounds.take(2))
+        assertEquals(21, rec.maps[0].rounds.length / 2)
+        assertEquals(false, rec.maps[0].team1Attacked(0))
         // EDG picked Lotus (team 2), LOUD picked Summit (team 1).
         assertEquals(VetoRecord(2, "ban", "Ascent"), rec.veto[0])
         assertEquals(VetoRecord(1, "ban", "Split"), rec.veto[1])

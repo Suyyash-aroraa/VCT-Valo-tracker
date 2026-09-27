@@ -15,12 +15,32 @@ data class ModelReport(
     val baselines: List<Baseline>,
     /** (predicted bucket midpoint, observed win rate, count) */
     val calibration: List<Triple<Double, Double, Int>>,
+    /** Accuracy at each live checkpoint: before the veto, maps known, after map 1, mid-map. */
+    val live: List<LiveRow> = emptyList(),
 )
+
+data class LiveRow(val moment: String, val forecasts: Int, val accuracy: Double, val logLoss: Double)
 
 data class Baseline(val name: String, val matches: Int, val accuracy: Double, val logLoss: Double, val modelAccuracy: Double, val modelLogLoss: Double)
 
 /** A trained predictor plus its report, as shipped to the app. */
-class TrainedModel(val predictor: Predictor, val generatedAt: Instant, val report: ModelReport?) {
+/**
+ * Which live signals passed the backtest gate. A signal that made forecasts worse than the
+ * pre-match number on unseen matches is switched off, so live can never be worse than pre-match.
+ */
+data class LiveGates(
+    /** Use the real maps once the veto is out (before any map starts). */
+    val maps: Boolean = true,
+    /** Update during the match (finished maps, live score). */
+    val live: Boolean = true,
+)
+
+class TrainedModel(
+    val predictor: Predictor,
+    val generatedAt: Instant,
+    val report: ModelReport?,
+    val gates: LiveGates = LiveGates(),
+) {
 
     /** Team ids by lowercase name, for screens that only know names. */
     val teamIdsByName: Map<String, String> by lazy {
@@ -38,13 +58,18 @@ object ModelIO {
         val root = JSONObject()
             .put("version", 2)
             .put("generatedAt", model.generatedAt.epochSecond)
+            .put("gates", JSONObject().put("maps", model.gates.maps).put("live", model.gates.live))
             .put("hyper", JSONObject()
                 .put("roundWeight", h.roundWeight).put("playerSd", h.playerSd).put("newcomerMean", h.newcomerMean)
                 .put("driftPerDay", h.driftPerDay).put("seasonSd", h.seasonSd).put("mapSd", h.mapSd)
                 .put("mapDriftPerDay", h.mapDriftPerDay).put("regionSd", h.regionSd)
-                .put("regionDriftPerDay", h.regionDriftPerDay).put("mapTemperature", h.mapTemperature))
+                .put("regionDriftPerDay", h.regionDriftPerDay).put("mapTemperature", h.mapTemperature)
+                .put("agentSd", h.agentSd).put("comfortSd", h.comfortSd).put("agentDriftPerDay", h.agentDriftPerDay))
             .put("players", beliefs(p.engine.players))
             .put("teamMaps", beliefs(p.engine.teamMaps))
+            .put("agentMaps", beliefs(p.engine.agentMaps))
+            .put("playerAgents", beliefs(p.engine.playerAgents))
+            .put("sideStats", JSONObject().also { o -> p.sideStats.forEach { (k, v) -> o.put(k, JSONArray(listOf(v.first, v.second))) } })
             .put("regions", beliefs(p.engine.regions))
             .put("teamRegion", JSONObject(p.engine.teamRegion as Map<*, *>))
             .put("rosters", JSONObject().also { o -> p.engine.rosters.forEach { (k, v) -> o.put(k, JSONArray(v)) } })
@@ -67,7 +92,10 @@ object ModelIO {
                     JSONObject().put("name", it.name).put("matches", it.matches).put("accuracy", it.accuracy)
                         .put("logLoss", it.logLoss).put("modelAccuracy", it.modelAccuracy).put("modelLogLoss", it.modelLogLoss)
                 }))
-                .put("calibration", JSONArray(r.calibration.map { JSONArray(listOf(it.first, it.second, it.third)) })))
+                .put("calibration", JSONArray(r.calibration.map { JSONArray(listOf(it.first, it.second, it.third)) }))
+                .put("live", JSONArray(r.live.map {
+                    JSONObject().put("moment", it.moment).put("n", it.forecasts).put("accuracy", it.accuracy).put("logLoss", it.logLoss)
+                })))
         }
         return root.toString()
     }
@@ -81,6 +109,8 @@ object ModelIO {
             seasonSd = hj.getDouble("seasonSd"), mapSd = hj.getDouble("mapSd"),
             mapDriftPerDay = hj.getDouble("mapDriftPerDay"), regionSd = hj.getDouble("regionSd"),
             regionDriftPerDay = hj.getDouble("regionDriftPerDay"), mapTemperature = hj.getDouble("mapTemperature"),
+            agentSd = hj.optDouble("agentSd", 0.0), comfortSd = hj.optDouble("comfortSd", 0.0),
+            agentDriftPerDay = hj.optDouble("agentDriftPerDay", 0.003),
         )
         val p = Predictor(hyper)
         fun beliefs(key: String, into: MutableMap<String, Belief>) {
@@ -92,6 +122,11 @@ object ModelIO {
         }
         beliefs("players", p.engine.players)
         beliefs("teamMaps", p.engine.teamMaps)
+        if (o.has("agentMaps")) beliefs("agentMaps", p.engine.agentMaps)
+        if (o.has("playerAgents")) beliefs("playerAgents", p.engine.playerAgents)
+        o.optJSONObject("sideStats")?.let { m ->
+            m.keys().forEach { k -> val a = m.getJSONArray(k); p.sideStats[k] = a.getDouble(0) to a.getDouble(1) }
+        }
         beliefs("regions", p.engine.regions)
         strings("teamRegion", p.engine.teamRegion)
         strings("names", p.names)
@@ -121,9 +156,16 @@ object ModelIO {
                         b.getDouble("modelAccuracy"), b.getDouble("modelLogLoss"))
                 },
                 calibration = List(cal.length()) { i -> val c = cal.getJSONArray(i); Triple(c.getDouble(0), c.getDouble(1), c.getInt(2)) },
+                live = r.optJSONArray("live")?.let { a ->
+                    List(a.length()) { i ->
+                        val x = a.getJSONObject(i)
+                        LiveRow(x.getString("moment"), x.getInt("n"), x.getDouble("accuracy"), x.getDouble("logLoss"))
+                    }
+                }.orEmpty(),
             )
         }
-        return TrainedModel(p, Instant.ofEpochSecond(o.getLong("generatedAt")), report)
+        val gates = o.optJSONObject("gates")?.let { LiveGates(it.optBoolean("maps", true), it.optBoolean("live", true)) } ?: LiveGates()
+        return TrainedModel(p, Instant.ofEpochSecond(o.getLong("generatedAt")), report, gates)
     }
 
     private fun round(x: Double) = Math.round(x * 1e5) / 1e5

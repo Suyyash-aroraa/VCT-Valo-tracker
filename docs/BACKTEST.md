@@ -1,6 +1,6 @@
 # Match predictor backtest
 
-_Generated 2026-09-26 by `./gradlew :trainer:run --args="train"`._
+_Generated 2026-09-27 by `./gradlew :trainer:run --args="train"`._
 
 **Out-of-sample test:** 1098 VCT series from 2025-01-11 to 2026-09-26. The model forecast every one of them before learning its result. Its settings were tuned only on the 514 series before 2025-01-01, starting July 2023.
 
@@ -18,7 +18,7 @@ Each row compares the model with a baseline on exactly the same matches.
 |---|---|---|---|---|---|
 | Coin flip | 1098 | 50.0% | 61.8% | 0.693 | 0.651 |
 | Team Elo | 1098 | 59.7% | 61.8% | 0.669 | 0.651 |
-| Bookmaker odds | 123 | 66.7% | 66.7% | 0.582 | 0.626 |
+| Bookmaker odds | 123 | 66.7% | 66.7% | 0.583 | 0.626 |
 
 Bookmaker odds come from the pre-match prices vlr.gg keeps on match pages. After a match only the winner's price survives, so the implied probability is estimated with the typical 6.8% margin removed. That estimate is slightly generous to the bookmaker.
 
@@ -41,8 +41,32 @@ Each forecaster judged only on the series where it was at least 70% sure of one 
 |---|---|---|---|---|
 | Model | 1098 | 112 | 10.2% | 79.5% |
 | Team Elo | 1098 | 281 | 25.6% | 69.4% |
-| Bookmaker odds | 123 | 29 | 23.6% | 93.1% |
+| Bookmaker odds | 123 | 30 | 24.4% | 90.0% |
 | Model, same series as bookmakers | 123 | 10 | 8.1% | 90.0% |
+
+## Live: how the forecast sharpens as the match unfolds
+
+The same unseen matches, forecast again at each point a live viewer gets new information.
+
+| Moment | Forecasts | Accuracy | Log-loss |
+|---|---|---|---|
+| Series, before the veto | 1098 | 61.8% | 0.651 |
+| Series, maps known | 1098 | 62.2% | 0.651 |
+| Series, after map 1 | 1092 | 73.7% | 0.548 |
+| Map at 0–0, without agents | 2793 | 57.3% | 0.676 |
+| Map at 0–0, with agents | 2793 | 57.3% | 0.676 |
+| Map after 6 rounds | 2793 | 71.2% | 0.566 |
+| Map after 12 rounds | 2793 | 77.4% | 0.476 |
+| Map after 18 rounds | 2140 | 81.3% | 0.396 |
+
+### Safety gate
+
+A live signal ships only if it beats the pre-match forecast on these same unseen matches; otherwise the app falls back to the pre-match number. This check reruns on every retrain.
+
+- Agents: map log-loss at agent select 0.6775 with vs 0.6765 without; pre-match 0.6515 vs 0.6506 -> SWITCHED OFF
+- Maps known: series log-loss 0.6512 vs pre-match 0.6506 on 1098 series -> SWITCHED OFF
+- After map 1: series log-loss 0.5485 vs pre-match 0.6505 on 1092 series -> KEPT
+- Live round score: map log-loss 0.5660 after 6 rounds vs 0.6765 at 0–0 on 2793 maps -> KEPT
 
 ## Breakdown
 
@@ -96,4 +120,7 @@ mapDriftPerDay=0.009715596385680059
 regionSd=0.31716571242461056
 regionDriftPerDay=0.003278030513660355
 mapTemperature=0.4733081790516611
+agentSd=0.0
+comfortSd=0.0
+agentDriftPerDay=0.00730568597744227
 ```

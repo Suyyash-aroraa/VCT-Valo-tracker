@@ -16,7 +16,9 @@ import java.time.Instant
 import java.time.LocalDate
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
+import com.vcttracker.model.LiveForecast
 import com.vcttracker.model.ModelIO
+import com.vcttracker.model.liveForecast
 import com.vcttracker.model.Prediction
 import com.vcttracker.model.TrainedModel
 import com.vcttracker.model.forecast
@@ -248,6 +250,9 @@ class Repository(private val context: Context) {
 
     /** Full forecast for a match page (upcoming or live). */
     suspend fun forecast(detail: MatchDetail): Prediction? = predicting { forecast(detail) }
+
+    /** Forecast updated with the veto, finished maps, the live score and agents, when known. */
+    suspend fun liveForecast(detail: MatchDetail): LiveForecast? = predicting { liveForecast(detail) }
 
     companion object {
         const val MODEL_URL = "https://github.com/Suyyash-aroraa/VCT-Valo-tracker/releases/download/model-latest/model.json"

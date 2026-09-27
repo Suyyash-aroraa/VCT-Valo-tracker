@@ -137,3 +137,54 @@ class VetoModelTest {
         assertTrue("Lotus $lotus should beat Bind $bind", lotus > 0.7 && bind < 0.3)
     }
 }
+
+class LiveTest {
+
+    @Test
+    fun fromZeroZeroMatchesTheWholeMapFormula() {
+        for (p in listOf(0.4, 0.5, 0.57)) {
+            assertEquals(SeriesMath.mapWin(p), InMap(p, p, null).winFrom(0, 0), 1e-12)
+            // Knowing sides changes nothing when both sides are equally strong.
+            assertEquals(SeriesMath.mapWin(p), InMap(p, p, true).winFrom(0, 0), 1e-12)
+        }
+    }
+
+    @Test
+    fun scoresAndOvertimeBehave() {
+        val m = InMap(0.5, 0.5, true)
+        assertEquals(1.0, m.winFrom(13, 5), 0.0)
+        assertEquals(0.0, m.winFrom(11, 13), 0.0)
+        assertEquals(0.5, m.winFrom(12, 12), 1e-12)
+        assertEquals(0.75, m.winFrom(13, 12), 1e-12) // win the next round, or back to a coin-flip tie
+        assertTrue(m.winFrom(10, 4) > 0.95)
+        // Overtime with lopsided sides: take the attack round, hold the defense round.
+        val sided = InMap(0.7, 0.4, true)
+        assertEquals(0.28 / (0.28 + 0.18), sided.winFrom(14, 14), 1e-12)
+    }
+
+    @Test
+    fun sidesMatterWhenOneSideIsStronger() {
+        // Team 1 is great on attack, poor on defense; halves swap at 13.
+        val attackFirst = InMap(0.7, 0.35, true).winFrom(0, 0)
+        val defenseFirst = InMap(0.7, 0.35, false).winFrom(0, 0)
+        assertEquals(attackFirst, defenseFirst, 0.02) // over a full map the halves even out
+        // Up 6–6 at the half with the strong side still to come is better than after it.
+        assertTrue(InMap(0.7, 0.35, false).winFrom(6, 6) > InMap(0.7, 0.35, true).winFrom(6, 6))
+    }
+
+    @Test
+    fun seriesStateCountsMapsAlreadyWon() {
+        val p = Predictor(Hyper())
+        val state = LiveState(
+            bestOf = 3,
+            maps = listOf(
+                LiveMap("Ascent", 13, 7, finished = true),
+                LiveMap("Bind", 12, 3, finished = false),
+                LiveMap("Haven", 0, 0, finished = false),
+            ),
+        )
+        val f = p.predictLive("a", "b", state, 20_000, preMatch = 0.5)
+        assertTrue("1–0 up and 12–3 on map two should be near-certain, got ${f.team1Wins}", f.team1Wins > 0.97)
+        assertEquals(1.0, f.maps[0].team1Wins, 0.0)
+    }
+}

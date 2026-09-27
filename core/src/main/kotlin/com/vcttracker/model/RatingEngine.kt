@@ -24,6 +24,11 @@ data class Hyper(
     val regionDriftPerDay: Double = 0.002,
     /** Shrinks the round-level edge before turning it into a map probability (maps are streakier than coin flips). */
     val mapTemperature: Double = 0.9,
+    /** Prior spread of an agent's strength on a given map (the meta). 0 leaves agents out. */
+    val agentSd: Double = 0.0,
+    /** Prior spread of a player's skill on one agent relative to their baseline (comfort picks). 0 leaves it out. */
+    val comfortSd: Double = 0.0,
+    val agentDriftPerDay: Double = 0.003,
 )
 
 /** A Gaussian belief about one parameter. */
@@ -37,6 +42,8 @@ class Belief(var mean: Double, var variance: Double, var lastDay: Long)
 class RatingEngine(val hyper: Hyper) {
     val players = HashMap<String, Belief>()
     val teamMaps = HashMap<String, Belief>()
+    val agentMaps = HashMap<String, Belief>()
+    val playerAgents = HashMap<String, Belief>()
     val regions = HashMap<String, Belief>()
     val teamRegion = HashMap<String, String>()
     val rosters = HashMap<String, List<String>>()
@@ -87,11 +94,32 @@ class RatingEngine(val hyper: Hyper) {
             ids.forEach { out += Term(player(it, day), w, hyper.driftPerDay) }
         }
         if (map != null) out += Term(teamMap(side.team, map, day), sign, hyper.mapDriftPerDay)
+        // Agents are only known once agent select is over; before that these terms are left out.
+        if (side.agents.isNotEmpty() && side.agents.size == side.players.size) {
+            val w = sign / side.agents.size
+            side.agents.forEachIndexed { i, agent ->
+                if (agent.isBlank()) return@forEachIndexed
+                if (map != null && hyper.agentSd > 0) {
+                    out += Term(agentMaps.getOrPut("$agent|$map") { Belief(0.0, hyper.agentSd * hyper.agentSd, day) }, w, hyper.agentDriftPerDay)
+                }
+                if (hyper.comfortSd > 0) {
+                    out += Term(playerAgents.getOrPut("${side.players[i]}|$agent") { Belief(0.0, hyper.comfortSd * hyper.comfortSd, day) }, w, hyper.agentDriftPerDay)
+                }
+            }
+        }
         return out
     }
 
-    /** One side of a map: the org (for map habits and region) and the five who played. */
-    data class Side(val team: String, val players: List<String> = emptyList(), val region: String? = null)
+    /**
+     * One side of a map: the org (for map habits and region), the five who played, and,
+     * once agent select is over, the agent each of them locked (same order as [players]).
+     */
+    data class Side(
+        val team: String,
+        val players: List<String> = emptyList(),
+        val region: String? = null,
+        val agents: List<String> = emptyList(),
+    )
 
     private fun allTerms(a: Side, b: Side, map: String?, day: Long): List<Term> {
         val t = terms(a, 1.0, map, day) + terms(b, -1.0, map, day)

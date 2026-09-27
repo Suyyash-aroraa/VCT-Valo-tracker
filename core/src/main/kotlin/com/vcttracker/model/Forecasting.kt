@@ -36,3 +36,19 @@ fun TrainedModel.forecast(d: MatchDetail, vetoRuns: Int = 400): Prediction? {
     val bestOf = d.format?.drop(2)?.toIntOrNull() ?: guessBestOf(d.series, d.eventName)
     return predictor.predict(a, b, bestOf, today(), vetoRuns)
 }
+
+/**
+ * Live forecast for a match page once anything beyond the pre-match picture is known:
+ * the veto (maps), finished maps, the live map's score and sides, or locked agents.
+ */
+fun TrainedModel.liveForecast(d: MatchDetail): LiveForecast? {
+    if (d.status == com.vcttracker.data.MatchStatus.COMPLETED || !gates.live) return null
+    val a = d.team1.id?.takeIf { it in predictor.names } ?: teamIdsByName[d.team1.name.lowercase()] ?: return null
+    val b = d.team2.id?.takeIf { it in predictor.names } ?: teamIdsByName[d.team2.name.lowercase()] ?: return null
+    val bestOf = d.format?.drop(2)?.toIntOrNull() ?: guessBestOf(d.series, d.eventName)
+    val state = LiveState.from(d, bestOf) ?: return null
+    // Before any map starts the live forecast only adds the known maps; skip it if that didn't pass.
+    if (!gates.maps && state.maps.none { it.started }) return null
+    val preMatch = predictor.predict(a, b, bestOf, today(), vetoRuns = 200).team1Wins
+    return predictor.predictLive(a, b, state, today(), preMatch)
+}

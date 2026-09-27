@@ -5,6 +5,7 @@ import com.vcttracker.data.MatchStatus
 import com.vcttracker.data.Region
 import com.vcttracker.data.Stage
 import com.vcttracker.data.VLR
+import com.vcttracker.data.Side
 import com.vcttracker.data.VlrParser
 import com.vcttracker.model.MapRecord
 import com.vcttracker.model.MatchRecord
@@ -38,6 +39,11 @@ object Dataset {
             MapRecord(
                 map = g.map, pickedBy = g.pickedBy, rounds1 = r1, rounds2 = r2,
                 players1 = g.players1.mapNotNull { it.id }, players2 = g.players2.mapNotNull { it.id },
+                agents1 = g.players1.filter { it.id != null }.map { it.agents.firstOrNull()?.lowercase().orEmpty() },
+                agents2 = g.players2.filter { it.id != null }.map { it.agents.firstOrNull()?.lowercase().orEmpty() },
+                rounds = g.rounds.joinToString("") { r ->
+                    "${r.winner}" + when (r.side) { Side.ATTACK -> "a"; Side.DEFENSE -> "d"; null -> "?" }
+                },
             )
         }
         val bestOf = detail.format?.drop(2)?.toIntOrNull() ?: (maxOf(s1, s2) * 2 - 1)

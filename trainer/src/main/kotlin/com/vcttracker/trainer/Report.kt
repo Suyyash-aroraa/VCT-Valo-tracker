@@ -16,6 +16,7 @@ object Report {
         test: List<Forecast>,
         train: List<Forecast>,
         hyper: Hyper,
+        gates: List<String> = emptyList(),
     ): String = buildString {
         val first = test.minOfOrNull { it.match.time }?.toString()?.take(10)
         val last = test.maxOfOrNull { it.match.time }?.toString()?.take(10)
@@ -72,6 +73,22 @@ object Report {
         confident("Bookmaker odds", oddsPool) { it.odds!! }
         confident("Model, same series as bookmakers", oddsPool) { it.final }
         appendLine()
+        appendLine("## Live: how the forecast sharpens as the match unfolds")
+        appendLine()
+        appendLine("The same unseen matches, forecast again at each point a live viewer gets new information.")
+        appendLine()
+        appendLine("| Moment | Forecasts | Accuracy | Log-loss |")
+        appendLine("|---|---|---|---|")
+        for (row in r.live) appendLine("| ${row.moment} | ${row.forecasts} | ${pct(row.accuracy)} | ${f3(row.logLoss)} |")
+        appendLine()
+        if (gates.isNotEmpty()) {
+            appendLine("### Safety gate")
+            appendLine()
+            appendLine("A live signal ships only if it beats the pre-match forecast on these same unseen matches; otherwise the app falls back to the pre-match number. This check reruns on every retrain.")
+            appendLine()
+            gates.forEach { appendLine("- $it") }
+            appendLine()
+        }
         appendLine("## Breakdown")
         appendLine()
         appendLine("| Slice | Series | Accuracy | Log-loss |")

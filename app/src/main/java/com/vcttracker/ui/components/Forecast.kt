@@ -31,7 +31,8 @@ import com.vcttracker.ui.theme.VctIcons
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
-private fun pct(p: Double) = "${(p * 100).roundToInt()}%"
+/** Whole percentages, except near a coin flip where "50% vs 50%" would hide who's ahead. */
+private fun pct(p: Double) = if (abs(p - 0.5) < 0.01 && abs(p - 0.5) > 0.0005) "%.1f%%".format(p * 100) else "${(p * 100).roundToInt()}%"
 
 /** A two-sided bar: the favourite's share in ink, the other side receding. */
 @Composable
@@ -147,4 +148,129 @@ fun reasons(p: Prediction, team1: String, team2: String): List<String> {
         out += 100.0 to "At least one roster has little recent history, so this forecast is kept cautious."
     }
     return out.sortedByDescending { it.first }.map { it.second }.take(4)
+}
+
+/**
+ * The forecast once the match has more to say than the pre-match picture: maps set by the
+ * veto, maps already won, the live map's score, and the agents each side locked.
+ */
+@Composable
+fun LiveForecastCard(
+    live: com.vcttracker.model.LiveForecast,
+    maps: List<com.vcttracker.data.Game>,
+    team1: String,
+    team2: String,
+    isLive: Boolean,
+    modifier: Modifier = Modifier,
+) {
+    val c = Vct.colors
+    val nav = LocalNavigator.current
+    val p = live.team1Wins
+    val change = (p - live.preMatch) * 100
+    Column(modifier.fillMaxWidth()) {
+        SectionHeader(
+            if (isLive) "Live forecast" else "Forecast · maps set",
+            Modifier.padding(horizontal = 20.dp),
+            trailing = if (isLive) "Updates with every round" else null,
+        )
+        Column(
+            Modifier.fillMaxWidth().padding(horizontal = 20.dp)
+                .clip(ChamferSmall).background(c.surface, ChamferSmall).padding(16.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth().semantics(mergeDescendants = true) {
+                    contentDescription = "Forecast now: $team1 ${pct(p)}, $team2 ${pct(1 - p)}. Before the match it was ${pct(live.preMatch)} for $team1."
+                },
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    MonoLabel(tagOf(team1), color = c.muted)
+                    Text(pct(p), style = Vct.type.display, color = if (p >= 0.5) c.ink else c.faint)
+                }
+                Column(Modifier.weight(1f), horizontalAlignment = Alignment.End) {
+                    MonoLabel(tagOf(team2), color = c.muted)
+                    Text(pct(1 - p), style = Vct.type.display, color = if (p < 0.5) c.ink else c.faint, textAlign = TextAlign.End)
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            SplitBar(p)
+            Spacer(Modifier.height(8.dp))
+            Text(
+                when {
+                    abs(change) < 1 -> "Unchanged from the pre-match ${pct(live.preMatch)} for ${tagOf(team1)}."
+                    else -> "Pre-match ${pct(live.preMatch)} for ${tagOf(team1)}; ${if (change > 0) "up" else "down"} ${abs(change).roundToInt()} points since."
+                },
+                style = Vct.type.small, color = c.muted,
+            )
+
+            Spacer(Modifier.height(16.dp))
+            Row {
+                MonoLabel("Map", Modifier.weight(1f), color = c.faint)
+                MonoLabel("Score", Modifier.width(64.dp), color = c.faint)
+                MonoLabel("${tagOf(team1)} wins", Modifier.width(88.dp), color = c.faint)
+            }
+            live.maps.forEachIndexed { i, m ->
+                val game = maps.getOrNull(i)
+                val r1 = game?.score1?.toIntOrNull() ?: 0
+                val r2 = game?.score2?.toIntOrNull() ?: 0
+                val finished = m.team1Wins == 1.0 || m.team1Wins == 0.0
+                val started = r1 + r2 > 0
+                Row(
+                    Modifier.fillMaxWidth().padding(vertical = 6.dp).semantics(mergeDescendants = true) {
+                        contentDescription = "${m.map}: " + when {
+                            finished -> "won by ${if (m.team1Wins == 1.0) team1 else team2}, $r1 to $r2"
+                            started -> "$r1 to $r2, $team1 ${pct(m.team1Wins)} to win it"
+                            else -> "not started, $team1 ${pct(m.team1Wins)} to win it"
+                        }
+                    },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(m.map.uppercase(), style = Vct.type.title, color = if (finished) c.muted else c.ink, modifier = Modifier.weight(1f))
+                    Text(if (started || finished) "$r1–$r2" else "–", style = Vct.type.data, color = c.muted, modifier = Modifier.width(64.dp))
+                    Column(Modifier.width(88.dp)) {
+                        if (finished) {
+                            MonoLabel(if (m.team1Wins == 1.0) "${tagOf(team1)} won" else "${tagOf(team2)} won", color = c.muted)
+                        } else {
+                            Text(pct(m.team1Wins), style = Vct.type.data, color = c.ink)
+                            Spacer(Modifier.height(3.dp))
+                            SplitBar(m.team1Wins, Modifier.width(72.dp), height = 3)
+                        }
+                    }
+                }
+            }
+
+            val notes = ArrayList<String>()
+            live.currentMapAtStart?.let { start ->
+                val current = live.maps.firstOrNull { it.team1Wins != 1.0 && it.team1Wins != 0.0 }
+                if (current != null) {
+                    val moved = (current.team1Wins - start) * 100
+                    if (abs(moved) >= 1) {
+                        notes += "The score on ${current.map} has moved ${tagOf(team1)} from ${pct(start)} to ${pct(current.team1Wins)} to win it."
+                    }
+                }
+            }
+            live.agentShift?.let { shift ->
+                notes += if (abs(shift) < 0.5) "The agent comps don't change much: both sides are on familiar picks for this map."
+                else "The agent comps shift the live map ${"%.1f".format(abs(shift))} points toward ${if (shift > 0) team1 else team2}."
+            }
+            if (notes.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                notes.forEach { line ->
+                    Row(Modifier.padding(vertical = 3.dp)) {
+                        Box(Modifier.padding(top = 8.dp).size(4.dp).background(c.muted))
+                        Spacer(Modifier.width(10.dp))
+                        Text(line, style = Vct.type.small, color = c.ink)
+                    }
+                }
+            }
+        }
+        Row(
+            Modifier.fillMaxWidth().clickable(role = Role.Button) { nav.model() }
+                .padding(horizontal = 20.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text("How live forecasts are made and tested", style = Vct.type.small, color = c.muted, modifier = Modifier.weight(1f))
+            Icon(VctIcons.Chevron, null, tint = c.faint, modifier = Modifier.size(16.dp))
+        }
+    }
 }

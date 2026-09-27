@@ -14,7 +14,26 @@ data class MapRecord(
     val rounds2: Int,
     val players1: List<String>,
     val players2: List<String>,
-)
+    /** Agent each player locked, in the same order as [players1] / [players2]. */
+    val agents1: List<String> = emptyList(),
+    val agents2: List<String> = emptyList(),
+    /**
+     * Every round in order, two characters each: the winning team ('1' or '2') and the side
+     * it won on ('a' attack, 'd' defense, '?' unknown). "2a1d" = team 2 won round 1 on attack, …
+     */
+    val rounds: String = "",
+) {
+    /** Team 1's side in round [i] (0-based), inferred from who won it and on which side. */
+    fun team1Attacked(i: Int): Boolean? {
+        if (rounds.length < i * 2 + 2) return null
+        val winner = rounds[i * 2]
+        return when (rounds[i * 2 + 1]) {
+            'a' -> winner == '1'
+            'd' -> winner != '1'
+            else -> null
+        }
+    }
+}
 
 /** A veto step with the team resolved to 1 or 2 (0 for the leftover decider). */
 data class VetoRecord(val team: Int, val action: String, val map: String)
@@ -50,6 +69,10 @@ data class MatchRecord(
         .put("maps", JSONArray(maps.map {
             JSONObject().put("m", it.map).put("p", it.pickedBy).put("r", JSONArray(listOf(it.rounds1, it.rounds2)))
                 .put("p1", JSONArray(it.players1)).put("p2", JSONArray(it.players2))
+                .also { o ->
+                    if (it.agents1.isNotEmpty()) o.put("a1", JSONArray(it.agents1)).put("a2", JSONArray(it.agents2))
+                    if (it.rounds.isNotEmpty()) o.put("rs", it.rounds)
+                }
         }))
         .put("odds", JSONArray(odds.map { JSONArray(listOf(it.first ?: JSONObject.NULL, it.second ?: JSONObject.NULL)) }))
 
@@ -80,7 +103,13 @@ data class MatchRecord(
                 maps = (0 until maps.length()).map { i ->
                     val m = maps.getJSONObject(i)
                     val r = m.getJSONArray("r")
-                    MapRecord(m.getString("m"), m.getInt("p"), r.getInt(0), r.getInt(1), strs(m.getJSONArray("p1")), strs(m.getJSONArray("p2")))
+                    MapRecord(
+                        m.getString("m"), m.getInt("p"), r.getInt(0), r.getInt(1),
+                        strs(m.getJSONArray("p1")), strs(m.getJSONArray("p2")),
+                        agents1 = m.optJSONArray("a1")?.let(::strs).orEmpty(),
+                        agents2 = m.optJSONArray("a2")?.let(::strs).orEmpty(),
+                        rounds = m.optString("rs", ""),
+                    )
                 },
                 odds = (0 until odds.length()).map { i ->
                     val a = odds.getJSONArray(i)

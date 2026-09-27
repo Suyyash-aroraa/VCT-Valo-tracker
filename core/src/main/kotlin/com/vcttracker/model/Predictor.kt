@@ -41,6 +41,15 @@ class Predictor(val hyper: Hyper) {
     val veto = VetoModel()
     val names = HashMap<String, String>()
 
+    /** Rounds won by the attacking side, and rounds played, per map (for in-map live odds). */
+    val sideStats = HashMap<String, Pair<Double, Double>>()
+
+    /** Round-logit advantage of attacking on [map], shrunk toward even when data is thin. */
+    fun attackBias(map: String): Double {
+        val (wins, rounds) = sideStats[map] ?: (0.0 to 0.0)
+        return SeriesMath.logit((wins + 100) / (rounds + 200))
+    }
+
     fun day(r: MatchRecord) = r.time.epochSecond / 86_400
 
     /**
@@ -124,8 +133,14 @@ class Predictor(val hyper: Hyper) {
             engine.teamRegion[r.team2Id] = r.region.name
         }
         for (m in r.maps) {
-            val a = RatingEngine.Side(r.team1Id, m.players1)
-            val b = RatingEngine.Side(r.team2Id, m.players2)
+            val a = RatingEngine.Side(r.team1Id, m.players1, agents = m.agents1)
+            val b = RatingEngine.Side(r.team2Id, m.players2, agents = m.agents2)
+            if (m.rounds.isNotEmpty()) {
+                val att = (m.rounds.indices step 2).count { m.rounds.getOrNull(it + 1) == 'a' }.toDouble()
+                val known = (m.rounds.indices step 2).count { m.rounds.getOrNull(it + 1) != '?' }.toDouble()
+                val (w, n) = sideStats[m.map] ?: (0.0 to 0.0)
+                sideStats[m.map] = (w + att) to (n + known)
+            }
             engine.observe(a, b, m.map, m.rounds1, m.rounds2, day)
             veto.seeMap(m.map, day)
         }

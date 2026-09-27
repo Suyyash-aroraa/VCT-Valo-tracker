@@ -34,6 +34,7 @@ Every push to `main` builds a new APK and publishes it on the [Releases page](..
 **Forecasts**
 - Upcoming matches show each team's chance to win.
 - The match page breaks the forecast down: the likely maps from a veto simulation, the win chance on each of them, and the main reasons in plain words.
+- **Live forecasts:** once a match starts, the forecast updates with the maps already won and the live map's exact round score and sides.
 - A **Forecasts** screen shows how accurate the model has been on matches it never saw. The full backtest is in [docs/BACKTEST.md](docs/BACKTEST.md).
 
 **Points**: circuit-point standings for each region, with the teams that qualified for Champions marked.
@@ -122,6 +123,17 @@ It lives in `core/src/main/kotlin/com/vcttracker/model/`, so the app, the traine
 2. **Map and region offsets.** Each team has an adjustment per map. Each region has a strength offset that only Masters and Champions results can move.
 3. **Exact series maths.** A round-win edge becomes a map-win chance through the first-to-13, win-by-two formula. Maps are combined into Bo1/Bo3/Bo5 odds state by state, averaging over rating uncertainty with Gauss–Hermite quadrature.
 4. **Veto simulation.** Each team's recent pick and ban habits play out the real VCT veto format hundreds of times to find the likely maps.
+
+5. **Live updates.** Once a match starts, finished maps count as won or lost. The live map's chance comes from an exact recursion over its round score that knows which side each team is on (halves swap at 13, overtime swaps every round).
+
+**Safety gate.** Every retrain checks each live signal against the pre-match forecast on the same unseen matches, and switches off any that don't beat it. On the current data:
+
+| Live signal | Unseen 2025–26 result | Status |
+|---|---|---|
+| Series after map 1 | 73.7% (pre-match 61.8%) | on |
+| Map after 6 / 12 / 18 rounds | 71.2% / 77.4% / 81.3% (at 0–0: 57.3%) | on |
+| Real maps after the veto | 62.2%, but log-loss slightly worse than pre-match | off |
+| Agent comps (agent-on-map meta, player comfort) | helped slightly on 2023–24, slightly worse on 2025–26 | off |
 
 The settings were tuned on 2023–24 only. It was then tested walk-forward on 1,098 series from 2025–26 that it had never seen:
 

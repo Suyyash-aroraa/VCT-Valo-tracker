@@ -48,10 +48,12 @@ import com.vcttracker.data.SideValue
 import com.vcttracker.data.StreamLink
 import com.vcttracker.data.Team
 import com.vcttracker.data.VetoStep
+import com.vcttracker.model.LiveForecast
 import com.vcttracker.model.ModelReport
 import com.vcttracker.model.Prediction
 import com.vcttracker.ui.components.ChoiceRow
 import com.vcttracker.ui.components.ForecastCard
+import com.vcttracker.ui.components.LiveForecastCard
 import com.vcttracker.ui.components.Ui
 import com.vcttracker.ui.components.repository
 import androidx.compose.runtime.produceState
@@ -89,15 +91,16 @@ fun MatchScreen(id: String) {
     // Forecasts only make sense before the result is known.
     val repo = repository()
     val detail = (handle.state as? Ui.Ready)?.data?.value
-    val forecast by produceState<Pair<Prediction?, ModelReport?>>(null to null, detail?.id, detail?.status) {
+    // Keyed on the whole page, so every live refresh (new round, new map, agents locked) re-forecasts.
+    val forecast by produceState<Forecasts>(Forecasts(), detail) {
         if (detail != null && detail.status != MatchStatus.COMPLETED) {
-            value = repo.forecast(detail) to repo.model()?.report
+            value = Forecasts(repo.forecast(detail), repo.liveForecast(detail), repo.model()?.report)
         }
     }
 
     Column(Modifier.fillMaxSize()) {
         TopBar("Match", onRefresh = handle.refresh)
-        LoadedContent(handle) { loaded -> MatchBody(loaded, mapIdx, forecast.first, forecast.second) { mapIdx = it } }
+        LoadedContent(handle) { loaded -> MatchBody(loaded, mapIdx, forecast.pre, forecast.report, forecast.live) { mapIdx = it } }
     }
 }
 
@@ -107,6 +110,7 @@ fun MatchBody(
     mapIdx: Int?,
     forecast: Prediction? = null,
     report: ModelReport? = null,
+    live: LiveForecast? = null,
     onMap: (Int) -> Unit,
 ) {
     val m = loaded.value
@@ -119,8 +123,12 @@ fun MatchBody(
     LazyColumn(Modifier.fillMaxSize()) {
         item { OfflineNote(loaded) }
         item { Scorebug(m) }
-        if (forecast != null && m.status != MatchStatus.COMPLETED) {
-            item { ForecastCard(forecast, m.team1.name, m.team2.name, report) }
+        when {
+            m.status == MatchStatus.COMPLETED -> Unit
+            live != null -> item {
+                LiveForecastCard(live, m.games.filter { !it.map.equals("TBD", true) }, m.team1.name, m.team2.name, isLive = m.status == MatchStatus.LIVE)
+            }
+            forecast != null -> item { ForecastCard(forecast, m.team1.name, m.team2.name, report) }
         }
         if (m.veto.isNotEmpty()) item { VetoStrip(m.veto) }
         if (m.games.isNotEmpty()) {
@@ -289,8 +297,8 @@ private fun MapList(m: MatchDetail, onOpen: (Int) -> Unit) {
                     Text(g.map.uppercase(), style = Vct.type.title, color = if (g.played) c.ink else c.faint)
                     val picker = when (g.pickedBy) { 1 -> m.team1.name; 2 -> m.team2.name; else -> null }
                     val sub = listOfNotNull(
-                        picker?.let { "${tagOf(it)} pick" } ?: if (!g.played) "Not played" else "Decider",
-                        g.duration.ifBlank { null },
+                        picker?.let { "${tagOf(it)} pick" } ?: if (!g.played && m.status == MatchStatus.COMPLETED) "Not played" else "Decider",
+                        g.duration.takeIf { it.isNotBlank() && it != "-" },
                     ).joinToString(" · ")
                     MonoLabel(sub, color = c.faint)
                 }
@@ -480,3 +488,10 @@ private fun host(url: String): String = when {
     "kick.com" in url -> "Kick"
     else -> url.substringAfter("://").substringBefore('/').removePrefix("www.")
 }
+
+/** Pre-match and live forecasts for one match page, plus the backtest they're judged by. */
+private data class Forecasts(
+    val pre: Prediction? = null,
+    val live: LiveForecast? = null,
+    val report: ModelReport? = null,
+)

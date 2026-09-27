@@ -76,6 +76,7 @@ fun ModelBody(model: TrainedModel) {
             item { Headline(r) }
             item { Baselines(r) }
             item { CalibrationChart(r) }
+            if (r.live.isNotEmpty()) item { LiveTable(r) }
         }
         item { HowItWorks() }
         item {
@@ -186,6 +187,34 @@ private fun CalibrationChart(r: ModelReport) {
     }
 }
 
+/** How accuracy climbs as a match gives up information: maps, results, rounds. */
+@Composable
+private fun LiveTable(r: ModelReport) {
+    val c = Vct.colors
+    Column {
+        SectionHeader("As the match unfolds", Modifier.padding(horizontal = 20.dp))
+        Text(
+            "The same unseen matches, forecast again each time something new is known.",
+            style = Vct.type.small, color = c.muted, modifier = Modifier.padding(horizontal = 20.dp),
+        )
+        Spacer(Modifier.height(8.dp))
+        r.live.forEach { row ->
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 7.dp).semantics(mergeDescendants = true) {
+                    contentDescription = "${row.moment}: right ${pct(row.accuracy)} of ${row.forecasts}"
+                },
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(row.moment, style = Vct.type.bodyStrong, color = c.ink)
+                    MonoLabel("${row.forecasts} forecasts · log-loss %.3f".format(row.logLoss), color = c.faint)
+                }
+                Text(pct(row.accuracy), style = Vct.type.data.copy(fontWeight = FontWeight.Medium), color = c.ink)
+            }
+        }
+    }
+}
+
 @Composable
 private fun HowItWorks() {
     val c = Vct.colors
@@ -194,6 +223,7 @@ private fun HowItWorks() {
         "Maps and regions" to "Teams get an adjustment per map. Regions get a strength offset that only Masters and Champions results can move.",
         "Round to series" to "A round edge becomes map odds through the exact first-to-13, win-by-two maths. Maps are then combined into Bo1, Bo3 or Bo5 odds, averaging over how sure we are about each roster.",
         "Veto simulation" to "Each team's recent picks and bans play out the real VCT veto hundreds of times to find the maps most likely to be played.",
+        "Live updates" to "Once play starts, maps already won count as won, and the live map's odds come from its exact round score and which side each team is on. Each live signal is kept only if it beat the pre-match forecast on unseen matches; agent comps and the post-veto map update didn't, so they're off.",
     )
     Column {
         SectionHeader("How a forecast is built", Modifier.padding(horizontal = 20.dp))
